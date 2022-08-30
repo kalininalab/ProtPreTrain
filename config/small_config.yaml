@@ -143,6 +143,7 @@ model:
   alpha: 1.0
   weighted_loss: false
 data:
+  root: null
   transforms:
   - class_path: protpretrain.data.PosNoise
     init_args:
