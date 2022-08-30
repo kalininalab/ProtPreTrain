@@ -42,7 +42,7 @@ optimizer:
     weight_decay: 1.0e-2
     betas: [0.9, 0.999]
 lr_scheduler:
-  class_path: rindti.utils.optim.LinearWarmupCosineAnnealingLR
+  class_path: protpretrain.utils.optim.LinearWarmupCosineAnnealingLR
   init_args:
     warmup_epochs: 1
     max_epochs: 500
@@ -50,16 +50,15 @@ lr_scheduler:
     eta_min: 1.0e-6
 data:
   transforms:
-    - class_path: rindti.data.PosNoise
+    - class_path: protpretrain.data.PosNoise
       init_args:
         sigma: 1.0
         plddt_dependent: false
-    - class_path: rindti.data.MaskTypeWeighted
+    - class_path: protpretrain.data.MaskTypeWeighted
       init_args:
         pick_prob: 0.15
         # mask_prob: 0.8
         # mut_prob: 0.1
-  filename: /scratch/SCRATCH_NVME/ilya/datasets/uniref50/resources/structures/
   batch_size: -1
   num_workers: 16
   shuffle: true

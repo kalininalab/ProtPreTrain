@@ -1,0 +1,177 @@
+seed_everything: true
+trainer:
+  logger:
+    class_path: pytorch_lightning.loggers.WandbLogger
+    init_args:
+      name: uniref50
+      save_dir: null
+      offline: false
+      id: null
+      anonymous: null
+      version: null
+      project: pretrain_alphafold
+      log_model: true
+      experiment: null
+      prefix: ''
+      agg_key_funcs: null
+      agg_default_func: null
+      job_type: null
+      dir: wandb
+      config: null
+      entity: null
+      reinit: null
+      tags:
+      - big
+      - uniref50
+      - overfit
+      group: null
+      notes: null
+      magic: null
+      config_exclude_keys: null
+      config_include_keys: null
+      mode: null
+      allow_val_change: null
+      resume: null
+      force: null
+      tensorboard: null
+      sync_tensorboard: null
+      monitor_gym: null
+      save_code: null
+      settings: null
+  enable_checkpointing: true
+  callbacks:
+  - class_path: pytorch_lightning.callbacks.StochasticWeightAveraging
+    init_args:
+      swa_lrs: 0.01
+      swa_epoch_start: 0.8
+      annealing_epochs: 10
+      annealing_strategy: cos
+      avg_fn: null
+      device: cpu
+  - class_path: pytorch_lightning.callbacks.ModelCheckpoint
+    init_args:
+      dirpath: null
+      filename: null
+      monitor: train/loss
+      verbose: false
+      save_last: null
+      save_top_k: 1
+      save_weights_only: false
+      mode: min
+      auto_insert_metric_name: true
+      every_n_train_steps: null
+      train_time_interval: null
+      every_n_epochs: null
+      save_on_train_epoch_end: null
+  - class_path: pytorch_lightning.callbacks.RichProgressBar
+    init_args:
+      refresh_rate: 1
+      leave: false
+      theme:
+        description: white
+        progress_bar: '#6206E0'
+        progress_bar_finished: '#6206E0'
+        progress_bar_pulse: '#6206E0'
+        batch_progress: white
+        time: grey54
+        processing_speed: grey70
+        metrics: white
+      console_kwargs: null
+  - class_path: pytorch_lightning.callbacks.RichModelSummary
+    init_args:
+      max_depth: 1
+  - class_path: pytorch_lightning.callbacks.LearningRateMonitor
+    init_args:
+      logging_interval: null
+      log_momentum: false
+  default_root_dir: null
+  gradient_clip_val: 1.0
+  gradient_clip_algorithm: null
+  num_nodes: 1
+  num_processes: null
+  devices: -1
+  gpus: null
+  auto_select_gpus: false
+  tpu_cores: null
+  ipus: null
+  enable_progress_bar: true
+  overfit_batches: 100
+  track_grad_norm: -1
+  check_val_every_n_epoch: 1
+  fast_dev_run: false
+  accumulate_grad_batches: null
+  max_epochs: 10000
+  min_epochs: null
+  max_steps: -1
+  min_steps: null
+  max_time: null
+  limit_train_batches: null
+  limit_val_batches: null
+  limit_test_batches: null
+  limit_predict_batches: null
+  val_check_interval: null
+  log_every_n_steps: 50
+  accelerator: gpu
+  strategy: null
+  sync_batchnorm: false
+  precision: 32
+  enable_model_summary: true
+  weights_save_path: null
+  num_sanity_val_steps: 2
+  resume_from_checkpoint: null
+  profiler: null
+  benchmark: null
+  deterministic: null
+  reload_dataloaders_every_n_epochs: 0
+  auto_lr_find: false
+  replace_sampler_ddp: true
+  detect_anomaly: false
+  auto_scale_batch_size: false
+  plugins: null
+  amp_backend: native
+  amp_level: null
+  move_metrics_to_cpu: false
+  multiple_trainloader_mode: max_size_cycle
+model:
+  local_module: GENConv
+  global_module: Performer
+  hidden_dim: 64
+  num_layers: 4
+  num_heads: 4
+  dropout: 0.0
+  attn_dropout: 0.0
+  alpha: 1.0
+  weighted_loss: false
+data:
+  transforms:
+  - class_path: protpretrain.data.PosNoise
+    init_args:
+      sigma: 1.0
+      plddt_dependent: false
+  - class_path: protpretrain.data.MaskTypeWeighted
+    init_args:
+      pick_prob: 0.15
+  batch_size: -1
+  num_workers: 16
+  shuffle: true
+  batch_sampling: true
+  max_num_nodes: 2500
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 0.0001
+    betas:
+    - 0.9
+    - 0.999
+    eps: 1.0e-08
+    weight_decay: 0.01
+    amsgrad: false
+    maximize: false
+lr_scheduler:
+  class_path: protpretrain.utils.LinearWarmupCosineAnnealingLR
+  init_args:
+    warmup_epochs: 1
+    max_epochs: 500
+    warmup_start_lr: 1.0e-05
+    eta_min: 1.0e-06
+    last_epoch: -1
