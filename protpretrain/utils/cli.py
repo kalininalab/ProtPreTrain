@@ -3,7 +3,6 @@ import collections
 import itertools
 from typing import Any, Callable, Dict, Union
 
-import git
 import yaml
 
 
@@ -110,12 +109,6 @@ def recursive_apply(ob: Union[Dict, Any], func: Callable) -> Union[Dict, Any]:
         return {k: recursive_apply(v, func) for k, v in ob.items()}
     else:
         return func(ob)
-
-
-def get_git_hash():
-    """Get the git hash of the current repository."""
-    repo = git.Repo(search_parent_directories=True)
-    return repo.head.object.hexsha
 
 
 def namespace_to_dict(namespace: argparse.Namespace) -> Union[Dict, Any]:
