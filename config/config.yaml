@@ -8,6 +8,10 @@ trainer:
       name: uniref50
       dir: wandb
       tags: [big, uniref50, overfit]
+      settings:
+        class_path: wandb.Settings
+        init_args:
+          start_method: fork
   enable_checkpointing: true
   callbacks:
     - class_path: pytorch_lightning.callbacks.StochasticWeightAveraging
