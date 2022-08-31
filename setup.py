@@ -7,7 +7,7 @@ with open("protpretrain/version.py") as infile:
     exec(infile.read())
 
 setuptools.setup(
-    name="RINDTI",
+    name="ProtPreTrain",
     version=version,
     author="Ilya Senatorov",
     author_email="ilya.senatorov@helmholtz-hips.de",
