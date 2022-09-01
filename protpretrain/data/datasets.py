@@ -66,8 +66,6 @@ class AlphaFoldDataset(Dataset):
 
     def download(self):
         """Download the dataset from alphafold DB."""
-        shutil.rmtree(self.raw_dir)
-        download_url(os.path.join(self.alphafold_db_url, self.archive), self.raw_dir)
         extract_tar(os.path.join(self.raw_dir, self.archive), self.raw_dir, mode="r")
         filenames = []
         for i in Path(self.raw_dir).glob("*.pdb.gz"):
