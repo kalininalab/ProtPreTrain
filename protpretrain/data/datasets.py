@@ -17,14 +17,12 @@ class AlphaFoldDataset(Dataset):
     def __init__(
         self,
         root: str,
-        archive: str,
         transform: Callable = None,
         pre_transform: Callable = None,
         threads: int = 4,
     ):
         self._len = None
         self.threads = threads
-        self.archive = archive
         super().__init__(root, transform, pre_transform)
 
     def process_single_graph(self, idx: int, raw_path: Path) -> None:
@@ -66,16 +64,17 @@ class AlphaFoldDataset(Dataset):
 
     def download(self):
         """Download the dataset from alphafold DB."""
-        shutil.rmtree(self.raw_dir)
-        download_url(os.path.join(self.alphafold_db_url, self.archive), self.raw_dir)
-        extract_tar(os.path.join(self.raw_dir, self.archive), self.raw_dir, mode="r")
-        filenames = []
-        for i in Path(self.raw_dir).glob("*.pdb.gz"):
-            extract_gz(i, self.raw_dir)
-            i.unlink()  # remove gz files
-            filenames.append(str(i))
-        for i in Path(self.raw_dir).glob("*.cif.gz"):  # If cif files are downloaded, remove them
-            i.unlink()
-        os.unlink(os.path.join(self.raw_dir, self.archive))
+        print("Extracting the tar archives")
+        Parallel(n_jobs=self.threads)(delayed(self.extract_tar)(tar_archive) for tar_archive in tqdm(Path(self.raw_dir).glob("*.tar")))
+        print("Extracting the gz files")
+        Parallel(n_jobs=self.threads)(delayed(self.extract_gz)(gz_file) for gz_file in tqdm(Path(self.raw_dir).glob("*.gz")))
         with open(os.path.join(self.raw_dir, "uniprot_ids.txt"), "w"):
             pass
+
+    def extract_gz(self, i:Path):
+        extract_gz(i, self.raw_dir)
+        i.unlink()
+    
+    def extract_tar(self, i:Path):
+        extract_tar(i, self.raw_dir, mode="r")
+        i.unlink()

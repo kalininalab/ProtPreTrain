@@ -16,7 +16,6 @@ class AlphaFoldDataModule(LightningDataModule):
     def __init__(
         self,
         root: str,
-        archive: str,
         transforms: List[BaseTransform] = [],
         pre_transforms: List[BaseTransform] = [],
         batch_size: int = 128,
@@ -27,7 +26,6 @@ class AlphaFoldDataModule(LightningDataModule):
     ):
         super().__init__()
         self.root = root
-        self.archive = archive
         self.transforms = transforms
         self.pre_transforms = pre_transforms
         self.batch_size = batch_size
@@ -54,7 +52,6 @@ class AlphaFoldDataModule(LightningDataModule):
         transform = T.Compose(self.transforms)
         self.train = AlphaFoldDataset(
             self.root,
-            self.archive,
             transform=transform,
             pre_transform=pre_transform,
             threads=self.num_workers,
