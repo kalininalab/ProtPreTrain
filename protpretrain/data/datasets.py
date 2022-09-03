@@ -5,10 +5,10 @@ from typing import Callable
 
 import torch
 from joblib import Parallel, delayed
-from torch_geometric.data import Data, Dataset, download_url, extract_gz, extract_tar
+from torch_geometric.data import Data, Dataset, extract_gz, extract_tar
 from tqdm import tqdm
 
-from .pdb_parser import PDBStructure
+from .parsers import ProtStructure
 
 
 class AlphaFoldDataset(Dataset):
@@ -65,16 +65,12 @@ class AlphaFoldDataset(Dataset):
     def download(self):
         """Download the dataset from alphafold DB."""
         print("Extracting the tar archives")
-        Parallel(n_jobs=self.threads)(delayed(self.extract_tar)(tar_archive) for tar_archive in tqdm(Path(self.raw_dir).glob("*.tar")))
-        print("Extracting the gz files")
-        Parallel(n_jobs=self.threads)(delayed(self.extract_gz)(gz_file) for gz_file in tqdm(Path(self.raw_dir).glob("*.gz")))
+        Parallel(n_jobs=self.threads)(
+            delayed(self.extract_tar)(tar_archive) for tar_archive in tqdm(Path(self.raw_dir).glob("*.tar"))
+        )
         with open(os.path.join(self.raw_dir, "uniprot_ids.txt"), "w"):
             pass
 
-    def extract_gz(self, i:Path):
-        extract_gz(i, self.raw_dir)
-        i.unlink()
-    
-    def extract_tar(self, i:Path):
+    def extract_tar(self, i: Path):
         extract_tar(i, self.raw_dir, mode="r")
         i.unlink()

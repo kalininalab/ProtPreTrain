@@ -1,14 +1,15 @@
 import pandas as pd
 import torch
 import torch.nn.functional as F
-import wandb
 from graphgps.layer.gps_layer import GPSLayer
 from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
 from torchmetrics import ConfusionMatrix
 from torchmetrics.functional.classification import accuracy
 
-from ..data.pdb_parser import node_encode
+import wandb
+
+from ..data.parsers import node_encode
 from ..utils import plot_aa_tsne, plot_confmat, plot_node_embeddings, plot_noise_pred
 
 
