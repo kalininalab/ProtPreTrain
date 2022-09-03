@@ -48,12 +48,12 @@ class Residue:
         )
 
     @classmethod
-    def from_cif_row(cls, row):
+    def from_cif_line(cls, line: str):
         return cls(
-            name=row["label_comp_id"],
-            x=float(row["Cartn_x"]),
-            y=float(row["Cartn_y"]),
-            z=float(row["Cartn_z"]),
+            name=line[20:23].strip(),
+            x=float(line[34:42].strip()),
+            y=float(line[42:50].strip()),
+            z=float(line[50:58].strip()),
         )
 
 
@@ -63,43 +63,29 @@ class ProtStructure:
     def __init__(self, filename: str) -> None:
         self.residues = []
         suffixes = Path(filename).suffixes
-        if ".pdb" in suffixes:
-            self.parse_pdb_file(filename)
-        elif ".cif" in suffixes:
-            self.parse_cif_file(filename)
-        else:
-            raise ValueError(f"Unknown file extension {''.join(suffixes)}")
-
-    def parse_pdb_file(self, filename: str) -> None:
-        """Parse PDB file"""
-        if ".gz" in filename:
+        if ".gz" in suffixes:
             f = gzip.open(filename, "rt")
         else:
             f = open(filename, "r")
+        if ".pdb" in suffixes:
+            self.parse_pdb_file(f)
+        elif ".cif" in suffixes:
+            self.parse_cif_file(f)
+        else:
+            raise ValueError(f"Unknown file extension {''.join(suffixes)}")
+
+    def parse_pdb_file(self, f) -> None:
+        """Parse PDB file"""
         for line in f:
             if line.startswith("ATOM") and line[12:16].strip() == "CA":
                 res = Residue.from_pdb_line(line)
                 self.residues.append(res)
 
-    def parse_cif_file(self, filename: str) -> None:
+    def parse_cif_file(self, f) -> None:
         """Parse CIF file"""
-        block = (
-            cif.read(filename)
-            .sole_block()
-            .find(
-                "_atom_site.",
-                [
-                    "label_atom_id",
-                    "label_comp_id",
-                    "Cartn_x",
-                    "Cartn_y",
-                    "Cartn_z",
-                ],
-            )
-        )
-        for row in block:
-            if row["label_atom_id"] == "CA":
-                res = Residue.from_cif_row(row)
+        for line in f:
+            if line.startswith("ATOM") and line[14:18].strip() == "CA":
+                res = Residue.from_cif_line(line)
                 self.residues.append(res)
 
     def get_coords(self) -> torch.Tensor:
