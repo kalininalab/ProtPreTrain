@@ -32,31 +32,28 @@ node_encode = {
 class Residue:
     """Residue class"""
 
-    def __init__(self, name: str, x: float, y: float, z: float, plddt: float = 100.0):
-        self.name = name
+    def __init__(self, name: str, x: float, y: float, z: float):
+        self.name = name.lower()
         self.x = x
         self.y = y
         self.z = z
-        self.plddt = plddt
 
     @classmethod
     def from_pdb_line(cls, line: str):
-        cls(
+        return cls(
             name=line[17:20].strip(),
             x=float(line[30:38]),
             y=float(line[38:46]),
             z=float(line[46:54]),
-            plddt=float(line[60:66]),
         )
 
     @classmethod
-    def from_cif_row(cls, row: cif.BlockRow):
+    def from_cif_row(cls, row):
         return cls(
             name=row["label_comp_id"],
             x=float(row["Cartn_x"]),
             y=float(row["Cartn_y"]),
             z=float(row["Cartn_z"]),
-            plddt=float(row["plddt"]),
         )
 
 
@@ -68,9 +65,10 @@ class ProtStructure:
         suffixes = Path(filename).suffixes
         if ".pdb" in suffixes:
             self.parse_pdb_file(filename)
-        else:
+        elif ".cif" in suffixes:
             self.parse_cif_file(filename)
-        self.parse_file(filename)
+        else:
+            raise ValueError(f"Unknown file extension {''.join(suffixes)}")
 
     def parse_pdb_file(self, filename: str) -> None:
         """Parse PDB file"""
@@ -80,14 +78,27 @@ class ProtStructure:
             f = open(filename, "r")
         for line in f:
             if line.startswith("ATOM") and line[12:16].strip() == "CA":
-                res = Residue(line)
+                res = Residue.from_pdb_line(line)
                 self.residues.append(res)
 
     def parse_cif_file(self, filename: str) -> None:
         """Parse CIF file"""
-        block = cif.read(filename).sole_block()
-        for row in block.find_values("_atom_site", "ATOM"):
-            if row["_atom_site.label_atom_id"] == "CA":
+        block = (
+            cif.read(filename)
+            .sole_block()
+            .find(
+                "_atom_site.",
+                [
+                    "label_atom_id",
+                    "label_comp_id",
+                    "Cartn_x",
+                    "Cartn_y",
+                    "Cartn_z",
+                ],
+            )
+        )
+        for row in block:
+            if row["label_atom_id"] == "CA":
                 res = Residue.from_cif_row(row)
                 self.residues.append(res)
 
@@ -110,21 +121,10 @@ class ProtStructure:
         return edges.t()
 
     def get_graph(self) -> dict:
-        """Get a graph using threshold as a cutoff"""
+        """Get a point cloud representation of a protein."""
         nodes = []
         pos = []
-        plddt = []
-        for res in self.residues.values():
+        for res in self.residues:
             nodes.append(node_encode[res.name.lower()])
             pos.append([res.x, res.y, res.z])
-            plddt.append(res.plddt)
-        return dict(x=torch.tensor(nodes), pos=torch.tensor(pos), plddt=torch.tensor(plddt))
-
-
-file = cif.read_file("../5tvn.cif")
-greeted = set()
-block = cif.read_file("../5tvn.cif").sole_block()
-coords = block.find("_atom_site.", ["label_atom_id", "label_comp_id", "label_seq_id", "Cartn_x", "Cartn_y", "Cartn_z"])
-for i in coords:
-    if i["label_atom_id"] == "CA":
-        print(i["Cartn_x"], i["Cartn_y"], i["Cartn_z"], i["label_comp_id"])
+        return dict(x=torch.tensor(nodes), pos=torch.tensor(pos))

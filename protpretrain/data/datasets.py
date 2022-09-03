@@ -5,10 +5,10 @@ from typing import Callable
 
 import torch
 from joblib import Parallel, delayed
-from torch_geometric.data import Data, Dataset, download_url, extract_gz, extract_tar
+from torch_geometric.data import Data, Dataset, extract_gz, extract_tar
 from tqdm import tqdm
 
-from .parsers import PDBStructure
+from .parsers import ProtStructure
 
 
 class AlphaFoldDataset(Dataset):

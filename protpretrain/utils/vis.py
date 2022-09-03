@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 from matplotlib.figure import Figure
 from sklearn.decomposition import PCA
-from umap import UMAP
+# from umap import UMAP
 
 from ..data.parsers import node_encode
 
