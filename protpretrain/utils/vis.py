@@ -9,7 +9,7 @@ from matplotlib.figure import Figure
 from sklearn.decomposition import PCA
 from umap import UMAP
 
-from ..data.pdb_parser import node_encode
+from ..data.parsers import node_encode
 
 node_decode = {v: k for k, v in node_encode.items()}
 

@@ -8,7 +8,7 @@ from joblib import Parallel, delayed
 from torch_geometric.data import Data, Dataset, download_url, extract_gz, extract_tar
 from tqdm import tqdm
 
-from .pdb_parser import PDBStructure
+from .parsers import PDBStructure
 
 
 class AlphaFoldDataset(Dataset):
