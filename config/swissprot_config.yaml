@@ -37,7 +37,7 @@ model:
   local_module: GENConv
   global_module: Performer
   hidden_dim: 512
-  num_layers: 12
+  num_layers: 24
   num_heads: 16
   dropout: 0.0
   attn_dropout: 0.0
@@ -60,11 +60,11 @@ data:
     - class_path: protpretrain.data.MaskType
       init_args:
         pick_prob: 0.15
-  batch_size: -1
+  batch_size: 4
   num_workers: 16
   shuffle: true
-  batch_sampling: true
-  max_num_nodes: 3000
+  batch_sampling: false
+  max_num_nodes: 0
 optimizer:
   class_path: torch.optim.AdamW
   init_args:

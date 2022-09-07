@@ -2,7 +2,6 @@ import gzip
 from pathlib import Path
 
 import torch
-from gemmi import cif
 
 node_encode = {
     "ala": 0,
@@ -114,3 +113,6 @@ class ProtStructure:
             nodes.append(node_encode[res.name.lower()])
             pos.append([res.x, res.y, res.z])
         return dict(x=torch.tensor(nodes), pos=torch.tensor(pos))
+
+    def __len__(self):
+        return len(self.residues)

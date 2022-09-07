@@ -27,7 +27,7 @@ class AlphaFoldDataset(Dataset):
 
     def process_single_graph(self, idx: int, raw_path: Path) -> None:
         """Convert a single pdb file into a graph and save as .pt file."""
-        s = PDBStructure(raw_path)
+        s = ProtStructure(raw_path)
         data = Data(**s.get_graph(), uniprot_id=raw_path.stem)
         if self.pre_transform is not None:
             data = self.pre_transform(data)

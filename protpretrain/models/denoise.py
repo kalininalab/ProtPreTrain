@@ -1,13 +1,12 @@
 import pandas as pd
 import torch
 import torch.nn.functional as F
+import wandb
 from graphgps.layer.gps_layer import GPSLayer
 from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
 from torchmetrics import ConfusionMatrix
 from torchmetrics.functional.classification import accuracy
-
-import wandb
 
 from ..data.parsers import node_encode
 from ..utils import plot_aa_tsne, plot_confmat, plot_node_embeddings, plot_noise_pred
@@ -101,7 +100,7 @@ class DenoiseModel(LightningModule):
             f"{step}/aa_pca": self.log_aa_embed(),
             f"{step}/node_pca": node_pca,
         }
-        for i in range(3):
+        for i in range(2):
             figs[f"{step}/noise_pred/{test_batch[i].uniprot_id}"] = plot_noise_pred(
                 test_batch[i].pos - test_batch[i].noise,
                 test_batch[i].pos - test_batch.noise_pred[test_batch.batch == i],
@@ -120,10 +119,16 @@ class DenoiseModel(LightningModule):
         loss = noise_loss + self.alpha * pred_loss
         acc = accuracy(batch.type_pred, batch.orig_x)
         self.confmat.update(batch.type_pred, batch.orig_x)
-        self.log(f"{step}/loss", loss)
-        self.log(f"{step}/acc", acc)
-        self.log(f"{step}/noise_loss", noise_loss)
-        self.log(f"{step}/pred_loss", pred_loss)
+        self.log("train/loss", loss, on_step=True, on_epoch=True, sync_dist=True)
+        if self.global_step % 20 == 0:
+            wandb.log(
+                {
+                    f"{step}/loss": loss,
+                    f"{step}/acc": acc,
+                    f"{step}/noise_loss": noise_loss,
+                    f"{step}/pred_loss": pred_loss,
+                }
+            )
         if self.global_step % 500 == 0:
             self.log_figs(step)
         return dict(
