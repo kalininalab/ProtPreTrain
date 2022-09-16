@@ -1,3 +1,5 @@
+from typing import Any
+
 import pandas as pd
 import torch
 import torch.nn.functional as F
@@ -5,6 +7,7 @@ import wandb
 from graphgps.layer.gps_layer import GPSLayer
 from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
+from torch_geometric.nn.aggr import MeanAggregation
 from torchmetrics import ConfusionMatrix
 from torchmetrics.functional.classification import accuracy
 
@@ -141,3 +144,12 @@ class DenoiseModel(LightningModule):
     def training_step(self, batch):
         """Just shared step"""
         return self.shared_step(batch, "train")
+
+    def encode(self, batch: Any) -> torch.Tensor:
+        """Create an embedding of the whole protein."""
+        aggr = MeanAggregation()
+        feat_encode = self.feat_encode(batch.x)
+        pos_encode = self.pos_encode(batch.pos)
+        batch.x = ((feat_encode - pos_encode).pow(2) + 1e-8).sqrt()
+        batch = self.node_encode(batch)
+        return aggr(batch.x, batch.batch)
