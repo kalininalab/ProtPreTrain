@@ -63,7 +63,7 @@ class DenoiseModel(LightningModule):
             torch.nn.GELU(),
             torch.nn.Linear(hidden_dim, 20),
         )
-        self.confmat = ConfusionMatrix(num_classes=20, normalize="true")
+        self.confmat = ConfusionMatrix(task="multiclass", num_classes=20, normalize="true")
 
     def forward(self, batch: Data) -> Data:
         """Return updated batch with noise and node type predictions."""
@@ -117,14 +117,14 @@ class DenoiseModel(LightningModule):
         noise_loss = F.mse_loss(batch.noise_pred, batch.noise)
         pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x)
         loss = noise_loss + self.alpha * pred_loss
-        acc = accuracy(batch.type_pred, batch.orig_x)
+        # acc = accuracy(batch.type_pred, batch.orig_x, task="multiclass")
         self.confmat.update(batch.type_pred, batch.orig_x)
         self.log("train/loss", loss, on_step=True, on_epoch=True, sync_dist=True)
         if self.global_step % 20 == 0:
             wandb.log(
                 {
                     f"{step}/loss": loss,
-                    f"{step}/acc": acc,
+                    # f"{step}/acc": acc,
                     f"{step}/noise_loss": noise_loss,
                     f"{step}/pred_loss": pred_loss,
                 }
@@ -135,7 +135,7 @@ class DenoiseModel(LightningModule):
             loss=loss,
             noise_loss=noise_loss.detach(),
             pred_loss=pred_loss.detach(),
-            acc=acc.detach(),
+            # acc=acc.detach(),
         )
 
     def training_step(self, batch):

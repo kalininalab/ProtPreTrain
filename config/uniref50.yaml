@@ -8,7 +8,7 @@ trainer:
       project: pretrain_alphafold
       log_model: true
       dir: wandb
-      tags: [swissprot]
+      tags: [uniref50]
   enable_checkpointing: true
   callbacks:
     - class_path: pytorch_lightning.callbacks.StochasticWeightAveraging
@@ -23,28 +23,22 @@ trainer:
     - class_path: pytorch_lightning.callbacks.RichModelSummary
     - class_path: pytorch_lightning.callbacks.LearningRateMonitor
   gradient_clip_val: 1.0
-  num_nodes: 4
-  devices: -1
-  auto_select_gpus: true
-  overfit_batches: 0
-  accumulate_grad_batches: null
+  accumulate_grad_batches: 4
   max_epochs: 10000
   log_every_n_steps: 50
   accelerator: gpu
-  strategy: ddp
-  sync_batchnorm: false
 model:
   local_module: GENConv
   global_module: Performer
   hidden_dim: 512
-  num_layers: 24
+  num_layers: 12
   num_heads: 16
   dropout: 0.0
   attn_dropout: 0.0
   alpha: 1.0
   weighted_loss: false
 data:
-  root: data/swissprot
+  root: /scratch/SCRATCH_NVME/ilya/datasets/uniref50/
   pre_transforms:
     - class_path: torch_geometric.transforms.Center
     - class_path: torch_geometric.transforms.NormalizeRotation
