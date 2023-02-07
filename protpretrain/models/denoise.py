@@ -71,7 +71,7 @@ class DenoiseModel(LightningModule):
         pos_encode = self.pos_encode(batch.pos)
         batch.x = ((feat_encode - pos_encode).pow(2) + 1e-8).sqrt()
         batch = self.node_encode(batch)
-        batch.type_pred = self.type_pred(batch.x[batch.mask])
+        batch.type_pred = self.type_pred(batch.x)
         batch.noise_pred = self.noise_pred(batch.x)
         return batch
 
@@ -100,13 +100,13 @@ class DenoiseModel(LightningModule):
             f"{step}/aa_pca": self.log_aa_embed(),
             f"{step}/node_pca": node_pca,
         }
-        for i in range(2):
-            figs[f"{step}/noise_pred/{test_batch[i].uniprot_id}"] = plot_noise_pred(
-                test_batch[i].pos - test_batch[i].noise,
-                test_batch[i].pos - test_batch.noise_pred[test_batch.batch == i],
-                test_batch[i].edge_index,
-                test_batch[i].uniprot_id,
-            )
+        # for i in range(2):
+        #     figs[f"{step}/noise_pred/{test_batch[i].uniprot_id}"] = plot_noise_pred(
+        #         test_batch[i].pos - test_batch[i].noise,
+        #         test_batch[i].pos - test_batch.noise_pred[test_batch.batch == i],
+        #         test_batch[i].edge_index,
+        #         test_batch[i].uniprot_id,
+        #     )
         wandb.log(figs)
 
     def shared_step(self, batch: Data, step: int) -> dict:

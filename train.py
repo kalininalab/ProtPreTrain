@@ -13,11 +13,8 @@ cli = LightningCLI(
     save_config_callback=None,
 )
 wandb.init(
-    settings=wandb.Settings(start_method="fork"),
     project="pretrain_alphafold",
     name="swissprot",
-    mode="offline",
     config=namespace_to_dict(cli.config),
-    tags=["swissprot"],
 )
 cli.trainer.fit(cli.model, cli.datamodule)

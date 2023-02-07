@@ -1,3 +1,5 @@
+import random
+
 import torch
 from torch_geometric.data import Data
 from torch_geometric.transforms import BaseTransform
@@ -27,7 +29,37 @@ class MaskType(BaseTransform):
 
     def __call__(self, batch) -> torch.Tensor:
         mask = torch.rand_like(batch.x, dtype=torch.float32) < self.prob
-        batch.orig_x = batch.x[mask].clone()
+        batch.orig_x = batch.x.clone()
+        batch.x[mask] = 20
+        batch.mask = mask
+        return batch
+
+class MaskTypeAnkh(BaseTransform):
+    """Ensures each amino acid is masked at least once in a graph."""
+
+    def __init__(self, pick_prob: float):
+        self.prob = pick_prob
+
+    def __call__(self, batch) -> torch.Tensor:
+        N = batch.x.size(0)
+        n = int(N * self.prob)
+        mask = set()
+        aas = torch.randperm(20)
+        for i in aas:
+            if len(mask) >= n:
+                break
+            subset = torch.where(batch.x == i)[0]
+            if subset.size(0) > 0:
+                mask.add(subset[random.randint(0, subset.size(0) - 1)].item())
+        if n < 20:
+            mask = torch.tensor(list(mask))
+        else:
+            all_indices = set(range(N))
+            remaining_indices = list(all_indices - mask)
+            random.shuffle(remaining_indices)
+            mask = list(mask) + remaining_indices[:n - len(mask)]
+            mask = torch.tensor(list(mask))
+        batch.orig_x = batch.x.clone()
         batch.x[mask] = 20
         batch.mask = mask
         return batch

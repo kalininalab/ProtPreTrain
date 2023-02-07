@@ -3,12 +3,12 @@ trainer:
   logger:
     class_path: pytorch_lightning.loggers.WandbLogger
     init_args:
-      name: test
+      name: ankh
       save_dir: null
       project: pretrain_alphafold
       log_model: true
       dir: wandb
-      tags: [uniref50]
+      tags: [uniref50, ankh]
   enable_checkpointing: true
   callbacks:
     - class_path: pytorch_lightning.callbacks.StochasticWeightAveraging
@@ -31,7 +31,7 @@ model:
   local_module: GENConv
   global_module: Performer
   hidden_dim: 512
-  num_layers: 12
+  num_layers: 24
   num_heads: 16
   dropout: 0.0
   attn_dropout: 0.0
@@ -44,21 +44,21 @@ data:
     - class_path: torch_geometric.transforms.NormalizeRotation
     - class_path: torch_geometric.transforms.RadiusGraph
       init_args:
-        r: 7.0
+        r: 10.0
     - class_path: torch_geometric.transforms.ToUndirected
   transforms:
     - class_path: protpretrain.data.PosNoise
       init_args:
         sigma: 1.0
         plddt_dependent: false
-    - class_path: protpretrain.data.MaskType
+    - class_path: protpretrain.data.MaskTypeAnkh
       init_args:
-        pick_prob: 0.15
-  batch_size: 4
+        pick_prob: 0.2
+  batch_size: 2
   num_workers: 16
   shuffle: true
-  batch_sampling: false
-  max_num_nodes: 0
+  batch_sampling: true
+  max_num_nodes: 1024
 optimizer:
   class_path: torch.optim.AdamW
   init_args:
@@ -67,7 +67,7 @@ optimizer:
       - 0.9
       - 0.999
     eps: 1.0e-08
-    weight_decay: 0.01
+    weight_decay: 0.0
 lr_scheduler:
   class_path: protpretrain.utils.LinearWarmupCosineAnnealingLR
   init_args:
