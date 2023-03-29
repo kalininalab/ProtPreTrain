@@ -3,11 +3,11 @@ import setuptools
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
-with open("protpretrain/version.py") as infile:
+with open("step/version.py") as infile:
     exec(infile.read())
 
 setuptools.setup(
-    name="ProtPreTrain",
+    name="STEP",
     version=version,
     author="Ilya Senatorov",
     author_email="ilya.senatorov@helmholtz-hips.de",
@@ -30,5 +30,5 @@ setuptools.setup(
         "Programming Language :: Python :: 3.8",
         "Development Status :: 3 - Alpha",
     ],
-    python_requires=">=3.8",
+    python_requires=">=3.10",
 )

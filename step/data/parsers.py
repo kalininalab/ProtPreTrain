@@ -1,31 +1,57 @@
 import gzip
 from pathlib import Path
+from typing import Dict, List, Tuple, Union
 
+import pandas as pd
 import torch
 
-node_encode = {
-    "ala": 0,
-    "arg": 1,
-    "asn": 2,
-    "asp": 3,
-    "cys": 4,
-    "gln": 5,
-    "glu": 6,
-    "gly": 7,
-    "his": 8,
-    "ile": 9,
-    "leu": 10,
-    "lys": 11,
-    "met": 12,
-    "phe": 13,
-    "pro": 14,
-    "ser": 15,
-    "thr": 16,
-    "trp": 17,
-    "tyr": 18,
-    "val": 19,
-    "mask": 20,
-}
+
+class AAFrame(pd.DataFrame):
+    def __call__(self, value: Union[str, int], target: str) -> Union[str, int]:
+        """Return correct representation of the aminoacid"""
+        assert target in self.columns, "Target columns must be in the dataframe"
+        if isinstance(value, str):
+            value = value.upper()
+        if isinstance(value, int):
+            source = "code"
+        elif isinstance(value, str):
+            if len(value) == 1:
+                source = "one"
+            elif len(value) == 3:
+                source = "three"
+            else:
+                raise ValueError("Aminoacid must be either 1 or 3 letter code")
+        else:
+            raise ValueError("Aminoacid must be int or str")
+        return self.set_index(source).loc[value, target]
+
+
+aminoacids = AAFrame(
+    [
+        [0, "ALA", "A"],
+        [1, "ARG", "R"],
+        [2, "ASN", "N"],
+        [3, "ASP", "D"],
+        [4, "CYS", "C"],
+        [5, "GLN", "Q"],
+        [6, "GLU", "E"],
+        [7, "GLY", "G"],
+        [8, "HIS", "H"],
+        [9, "ILE", "I"],
+        [10, "LEU", "L"],
+        [11, "LYS", "K"],
+        [12, "MET", "M"],
+        [13, "PHE", "F"],
+        [14, "PRO", "P"],
+        [15, "SER", "S"],
+        [16, "THR", "T"],
+        [17, "TRP", "W"],
+        [18, "TYR", "Y"],
+        [19, "VAL", "V"],
+        [20, "MASK", "X"],
+    ],
+    columns=["code", "three", "one"],
+)
 
 
 class Residue:
@@ -94,7 +120,7 @@ class ProtStructure:
 
     def get_nodes(self) -> torch.Tensor:
         """Get features of all nodes of a graph"""
-        return torch.tensor([node_encode[res.name.lower()] for res in self.residues])
+        return torch.tensor([aminoacids(res.name, "code") for res in self.residues])
 
     def get_edges(self, threshold: float) -> torch.Tensor:
         """Get edges of a graph using threshold as a cutoff"""
@@ -110,9 +136,13 @@ class ProtStructure:
         nodes = []
         pos = []
         for res in self.residues:
-            nodes.append(node_encode[res.name.lower()])
+            nodes.append(aminoacids(res.name, "code"))
             pos.append([res.x, res.y, res.z])
         return dict(x=torch.tensor(nodes), pos=torch.tensor(pos))
+    
+    def get_sequence(self) -> str:
+        """Get sequence of a protein"""
+        return "".join([aminoacids(res.name, "one") for res in self.residues])
 
     def __len__(self):
         return len(self.residues)

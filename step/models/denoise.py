@@ -5,11 +5,11 @@ import wandb
 from graphgps.layer.gps_layer import GPSLayer
 from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
+from torch_geometric.nn import PointTransformerConv
 from torchmetrics import ConfusionMatrix
-from torchmetrics.functional.classi
-fication import accuracy
+from torchmetrics.functional.classification import accuracy
 
-from ..data.parsers import node_encode
+from ..data.parsers import aminoacids
 from ..utils import plot_aa_tsne, plot_confmat, plot_node_embeddings, plot_noise_pred
 
 
@@ -32,7 +32,7 @@ class DenoiseModel(LightningModule):
         self.weighted_loss = weighted_loss
         self.alpha = alpha
         self.feat_encode = torch.nn.Embedding(21, hidden_dim)
-        self.pos_encode = torch.nn.Linear(3, hidden_dim)
+        self.pos_encode = PointTransformerConv(hidden_dim, hidden_dim)
         self.node_encode = torch.nn.Sequential(
             *[
                 GPSLayer(
@@ -69,8 +69,7 @@ class DenoiseModel(LightningModule):
     def forward(self, batch: Data) -> Data:
         """Return updated batch with noise and node type predictions."""
         feat_encode = self.feat_encode(batch.x)
-        pos_encode = self.pos_encode(batch.pos)
-        batch.x = ((feat_encode - pos_encode).pow(2) + 1e-8).sqrt()
+        batch.x = self.pos_encode(feat_encode, batch.pos, batch.edge_index)
         batch = self.node_encode(batch)
         batch.type_pred = self.type_pred(batch.x)
         batch.noise_pred = self.noise_pred(batch.x)
@@ -79,7 +78,7 @@ class DenoiseModel(LightningModule):
     def log_confmat(self):
         """Log confusion matrix to wandb."""
         confmat_df = self.confmat.compute().detach().cpu().numpy()
-        indices = list(node_encode.keys())[:-1]
+        indices = list(aminoacids['three'])[:-1]
         confmat_df = pd.DataFrame(confmat_df, index=indices, columns=indices).round(2)
         self.confmat.reset()
         return plot_confmat(confmat_df)
@@ -101,13 +100,6 @@ class DenoiseModel(LightningModule):
             f"{step}/aa_pca": self.log_aa_embed(),
             f"{step}/node_pca": node_pca,
         }
-        # for i in range(2):
-        #     figs[f"{step}/noise_pred/{test_batch[i].uniprot_id}"] = plot_noise_pred(
-        #         test_batch[i].pos - test_batch[i].noise,
-        #         test_batch[i].pos - test_batch.noise_pred[test_batch.batch == i],
-        #         test_batch[i].edge_index,
-        #         test_batch[i].uniprot_id,
-        #     )
         wandb.log(figs)
 
     def shared_step(self, batch: Data, step: int) -> dict:
@@ -120,8 +112,8 @@ class DenoiseModel(LightningModule):
         loss = noise_loss + self.alpha * pred_loss
         # acc = accuracy(batch.type_pred, batch.orig_x, task="multiclass")
         self.confmat.update(batch.type_pred, batch.orig_x)
-        self.log("train/loss", loss, on_step=True, on_epoch=True, sync_dist=True)
-        if self.global_step % 20 == 0:
+        self.log("train/loss", loss, on_step=True, on_epoch=True)
+        if self.global_step % 100 == 0:
             wandb.log(
                 {
                     f"{step}/loss": loss,
@@ -130,7 +122,7 @@ class DenoiseModel(LightningModule):
                     f"{step}/pred_loss": pred_loss,
                 }
             )
-        if self.global_step % 500 == 0:
+        if self.global_step % 1000 == 0:
             self.log_figs(step)
         return dict(
             loss=loss,

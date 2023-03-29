@@ -6,7 +6,7 @@ from torch_geometric.data import Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import BaseTransform
 
-from .datasets import AlphaFoldDataset
+from .datasets import PreTrainDataset
 from .samplers import DynamicBatchSampler
 
 
@@ -50,7 +50,7 @@ class AlphaFoldDataModule(LightningDataModule):
         """Load the individual datasets."""
         pre_transform = T.Compose(self.pre_transforms)
         transform = T.Compose(self.transforms)
-        self.train = AlphaFoldDataset(
+        self.train = PreTrainDataset(
             self.root,
             transform=transform,
             pre_transform=pre_transform,

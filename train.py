@@ -2,10 +2,11 @@ import wandb
 import torch
 from pytorch_lightning.cli import LightningCLI
 
-from protpretrain.data import AlphaFoldDataModule
-from protpretrain.models.denoise import DenoiseModel
-from protpretrain.utils.cli import namespace_to_dict
-torch.set_float32_matmul_precision('medium')
+from step.data import AlphaFoldDataModule
+from step.models.denoise import DenoiseModel
+from step.utils.cli import namespace_to_dict
+
+torch.set_float32_matmul_precision("medium")
 cli = LightningCLI(
     model_class=DenoiseModel,
     datamodule_class=AlphaFoldDataModule,

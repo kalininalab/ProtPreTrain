@@ -9,9 +9,8 @@ from matplotlib.figure import Figure
 from sklearn.decomposition import PCA
 from umap import UMAP
 
-from ..data.parsers import node_encode
+from ..data.parsers import aminoacids
 
-node_decode = {v: k for k, v in node_encode.items()}
 
 
 def plot_loss_count_dist(losses: dict) -> Figure:
@@ -28,12 +27,11 @@ def plot_loss_count_dist(losses: dict) -> Figure:
 
 def plot_aa_tsne(emb: torch.Tensor):
     """Plot PCA of amino acid embeddings."""
-    node_decode = {v: k for k, v in node_encode.items()}
     tsne = PCA(n_components=2)
     emb_trans = tsne.fit_transform(emb)
     emb_trans = pd.DataFrame(emb_trans)
     emb_trans["size"] = 50
-    emb_trans["name"] = emb_trans.index.to_series().apply(lambda x: node_decode[x])
+    emb_trans["name"] = emb_trans.index.to_series().apply(lambda x: aminoacids('three', x))
     emb_trans["type"] = [
         "hydrophobic",
         "positive",
