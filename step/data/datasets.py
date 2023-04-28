@@ -143,3 +143,7 @@ def apply_changes(graph: Data, changes: List[Tuple[str, int, str]]) -> Data:
     for change in changes:
         new_graph.x[change[1]] = aminoacids(change[2], "code")
     return new_graph
+
+
+
+class FoldCompDataset(PreTrainDataset):
