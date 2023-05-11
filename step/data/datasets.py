@@ -1,15 +1,17 @@
 import os
+import shutil
 from pathlib import Path
-from typing import Callable, List, Tuple
+from typing import Callable
 
+import foldcomp
 import pandas as pd
 import torch
 from joblib import Parallel, delayed
-from torch_geometric.data import Data, Dataset, InMemoryDataset, extract_tar
+from torch_geometric.data import Data, Dataset, InMemoryDataset, download_url, extract_tar
 from tqdm import tqdm
 
 from .downstream import apply_edits, compute_edits
-from .parsers import ProtStructure, aminoacids
+from .parsers import ProtStructure
 
 
 class PreTrainDataset(Dataset):
@@ -82,14 +84,25 @@ class PreTrainDataset(Dataset):
         i.unlink()
 
 
-class TAPEDataset(InMemoryDataset):
+class FluorescenceDataset(InMemoryDataset):
     """One of the downstream tasks."""
 
-    url = None
+    url = "http://s3.amazonaws.com/songlabdata/proteindata/data_raw_pytorch/fluorescence.tar.gz"
+    struct_url = "https://alphafold.ebi.ac.uk/files/AF-P42212-F1-model_v4.pdb"
 
     def __init__(self, root, split="train", transform=None, pre_transform=None, pre_filter=None):
         super().__init__(root, transform, pre_transform, pre_filter)
         self.data, self.slices = torch.load(self.processed_paths[0])
+
+    def download(self):
+        """Download the dataset."""
+        raw_dir = Path(self.raw_dir)
+        download_url(self.url, self.raw_dir)
+        download_url(self.struct_url, self.raw_dir)
+        extract_tar(raw_dir / "fluorescence.tar.gz", self.raw_dir, mode="r")
+        for i in (raw_dir / "fluorescence").glob("*.json"):
+            shutil.move(i, self.raw_dir)
+        (raw_dir / "fluorescence").rmdir()
 
     @property
     def raw_file_names(self):
@@ -98,7 +111,7 @@ class TAPEDataset(InMemoryDataset):
             "fluorescence_train.json",
             "fluorescence_valid.json",
             "fluorescence_test.json",
-            "P42212.pdb",
+            "AF-P42212-F1-model_v4.pdb",
         ]
 
     @property
@@ -143,20 +156,56 @@ class TAPEDataset(InMemoryDataset):
             torch.save((data, slices), self.processed_paths[idx])
 
 
-def find_changes(orig_seq: str, new_seq: str) -> List[Tuple[str, int, str]]:
-    """Find changes between two sequences."""
-    n1, n2 = len(orig_seq), len(new_seq)
-    assert n1 == n2, f"Sequences must be of the same length, got {n1} and {n2}"
-    changes = []
-    for i, (a, b) in enumerate(zip(orig_seq, new_seq)):
-        if a != b:
-            changes.append((a, i, b))
-    return changes
+class StabilityDataset(InMemoryDataset):
+    def __init__(self, root, split="train", transform=None, pre_transform=None, pre_filter=None):
+        super().__init__(root, transform, pre_transform, pre_filter)
+        self.data, self.slices = torch.load(self.processed_paths[0])
 
+    @property
+    def raw_file_names(self):
+        """Files that have to be present in the raw directory."""
+        return [
+            "stability_test.json",
+            "stability_train.json",
+            "stability_valid.json",
+            "structures_db",
+            "structures_db.index",
+            "structures_db.lookup",
+            "structures_db.dbtype",
+        ]
 
-def apply_changes(graph: Data, changes: List[Tuple[str, int, str]]) -> Data:
-    """Apply changes to a graph."""
-    new_graph = graph.clone()
-    for change in changes:
-        new_graph.x[change[1]] = aminoacids(change[2], "code")
-    return new_graph
+    @property
+    def processed_file_names(self):
+        """Files that have to be present in the processed directory."""
+        return ["train.pt", "valid.pt", "test.pt"]
+
+    def process(self):
+        """Do the full run for the dataset."""
+        for split in ["train", "valid", "test"]:
+            print(split)
+            data_list = []
+            if split == "train":
+                idx = 0
+            elif split == "valid":
+                idx = 1
+            elif split == "test":
+                idx = 2
+            df = pd.read_json(self.raw_paths[idx])
+            ids = df["id"].tolist()
+            df.set_index("id", inplace=True)
+
+            with foldcomp.open(self.raw_paths[3], ids=ids) as db:
+                for (name, pdb) in tqdm(db):
+                    struct = ProtStructure(pdb)
+                    graph = Data(**struct.get_graph())
+                    graph.y = df.loc[name, "stability_score"][0]
+                    data_list.append(graph)
+
+            if self.pre_filter is not None:
+                data_list = [data for data in data_list if self.pre_filter(data)]
+
+            if self.pre_transform is not None:
+                data_list = [self.pre_transform(data) for data in data_list]
+
+            data, slices = self.collate(data_list)
+            torch.save((data, slices), self.processed_paths[idx])

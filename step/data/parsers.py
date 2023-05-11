@@ -1,4 +1,5 @@
 import gzip
+import os
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
@@ -83,32 +84,38 @@ class Residue:
 
 
 class ProtStructure:
-    """Structure class"""
+    """Protein structure class."""
 
-    def __init__(self, filename: str) -> None:
+    def __init__(self, input_data: str | Path) -> None:
         self.residues = []
-        suffixes = Path(filename).suffixes
-        if ".gz" in suffixes:
-            f = gzip.open(filename, "rt")
+        if check_path_valid(input_data):  # valid path == file
+            suffixes = Path(input_data).suffixes
+            if ".gz" in suffixes:  # if the file is gzipped
+                f = gzip.open(input_data, "rt")
+            else:
+                f = open(input_data, "r")
+            content = f.read()
+            f.close()
+        else:  # invalid path == string
+            content = input_data
+        file_format = check_file_format(content)
+        if file_format == "pdb":
+            self.parse_pdb(content)
+        elif file_format == "cif":
+            self.parse_cif(content)
         else:
-            f = open(filename, "r")
-        if ".pdb" in suffixes:
-            self.parse_pdb_file(f)
-        elif ".cif" in suffixes:
-            self.parse_cif_file(f)
-        else:
-            raise ValueError(f"Unknown file extension {''.join(suffixes)}")
+            raise ValueError("File format not recognized")
 
-    def parse_pdb_file(self, f) -> None:
+    def parse_pdb(self, content: List[str]) -> None:
         """Parse PDB file"""
-        for line in f:
+        for line in content.splitlines():
             if line.startswith("ATOM") and line[12:16].strip() == "CA":
                 res = Residue.from_pdb_line(line)
                 self.residues.append(res)
 
-    def parse_cif_file(self, f) -> None:
+    def parse_cif(self, content: List[str]) -> None:
         """Parse CIF file"""
-        for line in f:
+        for line in content.splitlines():
             if line.startswith("ATOM") and line[14:18].strip() == "CA":
                 res = Residue.from_cif_line(line)
                 self.residues.append(res)
@@ -139,10 +146,35 @@ class ProtStructure:
             nodes.append(aminoacids(res.name, "code"))
             pos.append([res.x, res.y, res.z])
         return dict(x=torch.tensor(nodes), pos=torch.tensor(pos))
-    
+
     def get_sequence(self) -> str:
         """Get sequence of a protein"""
         return "".join([aminoacids(res.name, "one") for res in self.residues])
 
     def __len__(self):
         return len(self.residues)
+
+
+def check_path_valid(path: str):
+    """Check if path is valid."""
+    max_path_length = os.pathconf(path, "PC_PATH_MAX")
+    if len(path) > max_path_length:
+        return False
+    p = Path(path)
+    return p.is_file()
+
+
+def check_file_format(content: str) -> str:
+    """Check if the content is PDB or CIF format."""
+    pdb_keywords = ["ATOM", "HETATM", "TER", "MODEL", "ENDMDL", "HEADER", "COMPND"]
+    cif_keywords = ["_atom_site.group_PDB", "_atom_site.id", "_atom_site.type_symbol"]
+
+    pdb_count = sum([1 for keyword in pdb_keywords if keyword in content])
+    cif_count = sum([1 for keyword in cif_keywords if keyword in content])
+
+    if pdb_count > 0 and cif_count == 0:
+        return "pdb"
+    elif cif_count > 0 and pdb_count == 0:
+        return "cif"
+    else:
+        return None
