@@ -165,9 +165,9 @@ class StabilityDataset(InMemoryDataset):
     def raw_file_names(self):
         """Files that have to be present in the raw directory."""
         return [
-            "stability_test.json",
             "stability_train.json",
             "stability_valid.json",
+            "stability_test.json",
             "structures_db",
             "structures_db.index",
             "structures_db.lookup",
@@ -190,7 +190,7 @@ class StabilityDataset(InMemoryDataset):
                 idx = 1
             elif split == "test":
                 idx = 2
-            df = pd.read_json(self.raw_paths[idx])
+            df = pd.read_json(self.raw_paths[idx]).drop_duplicates(subset=["id"])
             ids = df["id"].tolist()
             df.set_index("id", inplace=True)
 
@@ -198,7 +198,7 @@ class StabilityDataset(InMemoryDataset):
                 for (name, pdb) in tqdm(db):
                     struct = ProtStructure(pdb)
                     graph = Data(**struct.get_graph())
-                    graph.y = df.loc[name, "stability_score"][0]
+                    graph["y"] = df.loc[name, "stability_score"][0]
                     data_list.append(graph)
 
             if self.pre_filter is not None:

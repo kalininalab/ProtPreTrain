@@ -2,57 +2,62 @@ import gzip
 import os
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
+import numpy as np
 
 import pandas as pd
 import torch
+ONE_TO_THREE = {
+    "A": "ALA",
+    "R": "ARG",
+    "N": "ASN",
+    "D": "ASP",
+    "C": "CYS",
+    "Q": "GLN",
+    "E": "GLU",
+    "G": "GLY",
+    "H": "HIS",
+    "I": "ILE",
+    "L": "LEU",
+    "K": "LYS",
+    "M": "MET",
+    "F": "PHE",
+    "P": "PRO",
+    "S": "SER",
+    "T": "THR",
+    "W": "TRP",
+    "Y": "TYR",
+    "V": "VAL",
+    "X": "MASK",
+}
+
+THREE_TO_ONE = {v: k for k, v in ONE_TO_THREE.items()}
+
+THREE_TO_CODE = {
+    v: i for i, (k, v) in enumerate(ONE_TO_THREE.items())
+}
+
+CODE_TO_THREE = {v: k for k, v in THREE_TO_CODE.items()}
 
 
-class AAFrame(pd.DataFrame):
-    def __call__(self, value: Union[str, int], target: str) -> Union[str, int]:
-        """Return correct representation of the aminoacid"""
-        assert target in self.columns, "Target columns must be in the dataframe"
-        if isinstance(value, str):
-            value = value.upper()
-        if isinstance(value, int):
-            source = "code"
-        elif isinstance(value, str):
-            if len(value) == 1:
-                source = "one"
-            elif len(value) == 3:
-                source = "three"
-            else:
-                raise ValueError("Aminoacid must be either 1 or 3 letter code")
-        else:
-            raise ValueError("Aminoacid must be int or str")
-        return self.set_index(source).loc[value, target]
-
-
-aminoacids = AAFrame(
-    [
-        [0, "ALA", "A"],
-        [1, "ARG", "R"],
-        [2, "ASN", "N"],
-        [3, "ASP", "D"],
-        [4, "CYS", "C"],
-        [5, "GLN", "Q"],
-        [6, "GLU", "E"],
-        [7, "GLY", "G"],
-        [8, "HIS", "H"],
-        [9, "ILE", "I"],
-        [10, "LEU", "L"],
-        [11, "LYS", "K"],
-        [12, "MET", "M"],
-        [13, "PHE", "F"],
-        [14, "PRO", "P"],
-        [15, "SER", "S"],
-        [16, "THR", "T"],
-        [17, "TRP", "W"],
-        [18, "TYR", "Y"],
-        [19, "VAL", "V"],
-        [20, "MASK", "X"],
-    ],
-    columns=["code", "three", "one"],
-)
+def aminoacids(value: Union[str, int], target: str) -> Union[str, int]:
+    value = str(value).upper()
+    if target == "one":
+        if len(value) == 1:
+            return value
+        elif len(value) == 3:
+            return THREE_TO_ONE[value]
+    elif target == "three":
+        if len(value) == 3:
+            return value
+        elif len(value) == 1:
+            return ONE_TO_THREE[value]
+    elif target == "code":
+        if len(value) == 3:
+            return THREE_TO_CODE[value]
+        elif len(value) == 1:
+            return THREE_TO_CODE[ONE_TO_THREE[value]]
+    else:
+        raise ValueError("Target must be one of ['one', 'three', 'code']")
 
 
 class Residue:
