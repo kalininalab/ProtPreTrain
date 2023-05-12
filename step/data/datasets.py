@@ -125,6 +125,7 @@ class FluorescenceDataset(DownstreamDataset):
 
 class StabilityDataset(DownstreamDataset):
     """Predict stability for various proteins."""
+
     @property
     def raw_file_names(self):
         """Files that have to be present in the raw directory."""
