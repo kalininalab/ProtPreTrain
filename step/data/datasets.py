@@ -1,4 +1,3 @@
-import os
 import shutil
 from pathlib import Path
 from typing import Callable
@@ -6,7 +5,6 @@ from typing import Callable
 import foldcomp
 import pandas as pd
 import torch
-from joblib import Parallel, delayed
 from torch_geometric.data import Data, Dataset, InMemoryDataset, download_url, extract_tar
 from tqdm import tqdm
 
@@ -14,85 +12,59 @@ from .downstream import apply_edits, compute_edits
 from .parsers import ProtStructure
 
 
-class PreTrainDataset(Dataset):
+class FoldSeekDataset(Dataset):
     """
     Dataset for pre-training.
     """
 
-    alphafold_db_url = "https://ftp.ebi.ac.uk/pub/databases/alphafold/latest"
+    _len = 2278845
 
-    def __init__(
-        self,
-        root: str,
-        transform: Callable = None,
-        pre_transform: Callable = None,
-        threads: int = 4,
-    ):
-
-        self._len = None
-        self.threads = threads
+    def __init__(self, root: str, transform: Callable = None, pre_transform: Callable = None):
         super().__init__(root, transform, pre_transform)
 
-    def process_single_graph(self, idx: int, raw_path: Path) -> None:
-        """Convert a single pdb file into a graph and save as .pt file."""
-        s = ProtStructure(raw_path)
-        data = Data(**s.get_graph(), uniprot_id=raw_path.stem)
-        if self.pre_transform is not None:
-            data = self.pre_transform(data)
-        torch.save(data, Path(self.processed_dir) / f"data_{idx}.pt")
-
     def process(self):
-        """Convert pdbs into graphs."""
-        paths = Path(self.raw_dir).glob("*.pdb")
-        Parallel(n_jobs=self.threads)(delayed(self.process_single_graph)(idx, i) for idx, i in tqdm(enumerate(paths)))
-
-    def get(self, idx: int):
-        """Load a single graph."""
-        return torch.load(self.processed_dir + "/" + f"data_{idx}.pt")
-
-    def _set_len(self):
-        """Calculating length each time is slow (~1s for 200k structures), setting it to an attribute."""
-        self._len = len([x for x in Path(self.raw_dir).glob("*.pdb")])
+        """Convert proteins from foldcomp database into graphs."""
+        print("Dataset: foldcomp clustered")
+        with foldcomp.open(self.raw_dir + "/" + "afdb_rep_v4") as db:
+            for (name, pdb) in tqdm(db):
+                pdb = ProtStructure(pdb)
+                graph = pdb.get_graph()
+                torch.save(graph, self.processed_dir + "/" + f"{name}.pt")
 
     def len(self):
         """Number of graphs in the dataset."""
-        if self._len is None:
-            self._set_len()
         return self._len
 
     @property
     def raw_file_names(self):
         """List of raw files. I don't add pdb files, but create uniprot_ids.txt file."""
-        return ["uniprot_ids.txt"]
+        return ["afdb_rep_v4", "afdb_rep_v4.dbtype", "afdb_rep_v4.index", "afdb_rep_v4.lookup", "afdb_rep_v4.source"]
 
     @property
     def processed_file_names(self):
         """All generated filenames."""
         return [f"data_{i}.pt" for i in range(self.len())]
 
-    def download(self):
-        """Download the dataset from alphafold DB."""
-        print("Extracting the tar archives")
-        Parallel(n_jobs=self.threads)(
-            delayed(self.extract_tar)(tar_archive) for tar_archive in tqdm(Path(self.raw_dir).glob("*.tar"))
-        )
-        with open(os.path.join(self.raw_dir, "uniprot_ids.txt"), "w"):
-            pass
 
-    def extract_tar(self, i: Path):
-        extract_tar(i, self.raw_dir, mode="r")
-        i.unlink()
+class DownstreamDataset(InMemoryDataset):
 
-
-class FluorescenceDataset(InMemoryDataset):
-    """One of the downstream tasks."""
-
-    url = "http://s3.amazonaws.com/songlabdata/proteindata/data_raw_pytorch/fluorescence.tar.gz"
-    struct_url = "https://alphafold.ebi.ac.uk/files/AF-P42212-F1-model_v4.pdb"
+    splits = {"train": 0, "val": 1, "test": 2}
 
     def __init__(self, root, split="train", transform=None, pre_transform=None, pre_filter=None):
         super().__init__(root, transform, pre_transform, pre_filter)
-        self.data, self.slices = torch.load(self.processed_paths[0])
+        self.data, self.slices = torch.load(self.processed_paths[self.splits[split]])
+
+    @property
+    def processed_file_names(self):
+        """Files that have to be present in the processed directory."""
+        return ["train.pt", "valid.pt", "test.pt"]
+
+
+class FluorescenceDataset(DownstreamDataset):
+    """Predict fluorescence for GFP mutants."""
+
+    url = "http://s3.amazonaws.com/songlabdata/proteindata/data_raw_pytorch/fluorescence.tar.gz"
+    struct_url = "https://alphafold.ebi.ac.uk/files/AF-P42212-F1-model_v4.pdb"
 
     def download(self):
         """Download the dataset."""
@@ -113,11 +85,6 @@ class FluorescenceDataset(InMemoryDataset):
             "fluorescence_test.json",
             "AF-P42212-F1-model_v4.pdb",
         ]
-
-    @property
-    def processed_file_names(self):
-        """Files that have to be present in the processed directory."""
-        return ["train.pt", "valid.pt", "test.pt"]
 
     def process(self):
         """Do the full run for the dataset."""
@@ -156,11 +123,8 @@ class FluorescenceDataset(InMemoryDataset):
             torch.save((data, slices), self.processed_paths[idx])
 
 
-class StabilityDataset(InMemoryDataset):
-    def __init__(self, root, split="train", transform=None, pre_transform=None, pre_filter=None):
-        super().__init__(root, transform, pre_transform, pre_filter)
-        self.data, self.slices = torch.load(self.processed_paths[0])
-
+class StabilityDataset(DownstreamDataset):
+    """Predict stability for various proteins."""
     @property
     def raw_file_names(self):
         """Files that have to be present in the raw directory."""
@@ -173,11 +137,6 @@ class StabilityDataset(InMemoryDataset):
             "structures_db.lookup",
             "structures_db.dbtype",
         ]
-
-    @property
-    def processed_file_names(self):
-        """Files that have to be present in the processed directory."""
-        return ["train.pt", "valid.pt", "test.pt"]
 
     def process(self):
         """Do the full run for the dataset."""
