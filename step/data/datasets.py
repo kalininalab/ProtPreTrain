@@ -26,16 +26,20 @@ class FoldSeekDataset(Dataset):
         print("Dataset: foldcomp clustered")
         proc_dir = Path(self.processed_dir)
 
-        with foldcomp.open(self.processed_paths[0]) as db:
+        with foldcomp.open(self.raw_paths[0]) as db:
             for i in tqdm(range(len(db))):
                 filename = proc_dir / f"data_{i}.pt"
                 if filename.is_file():
                     continue
                 name, pdb = db[i]
                 pdb = ProtStructure(pdb)
-                graph = Data(**pdb.get_graph())
-                graph.uniprot_id = name.split("-")[1]
-                torch.save(graph, filename)
+                data = Data(**pdb.get_graph())
+                data.uniprot_id = name.split("-")[1]
+                if self.pre_filter is not None and not self.pre_filter(data):
+                    continue
+                if self.pre_transform is not None:
+                    data = self.pre_transform(data)
+                torch.save(data, filename)
 
     def get(self, idx):
         """Get graph by index."""
