@@ -26,7 +26,7 @@ class FoldSeekDataset(Dataset):
         print("Dataset: foldcomp clustered")
         proc_dir = Path(self.processed_dir)
 
-        with foldcomp.open(self.raw_dir + "/" + "afdb_rep_v4") as db:
+        with foldcomp.open(self.processed_paths[0]) as db:
             for i in tqdm(range(len(db))):
                 filename = proc_dir / f"data_{i}.pt"
                 if filename.is_file():
