@@ -78,7 +78,7 @@ class DenoiseModel(LightningModule):
     def log_confmat(self):
         """Log confusion matrix to wandb."""
         confmat_df = self.confmat.compute().detach().cpu().numpy()
-        indices = list(aminoacids['three'])[:-1]
+        indices = list(aminoacids["three"])[:-1]
         confmat_df = pd.DataFrame(confmat_df, index=indices, columns=indices).round(2)
         self.confmat.reset()
         return plot_confmat(confmat_df)

@@ -1,3 +1,4 @@
+import os
 import shutil
 from pathlib import Path
 from typing import Callable
@@ -17,23 +18,33 @@ class FoldSeekDataset(Dataset):
     Dataset for pre-training.
     """
 
-    _len = 2278845
-
     def __init__(self, root: str, transform: Callable = None, pre_transform: Callable = None):
         super().__init__(root, transform, pre_transform)
 
     def process(self):
         """Convert proteins from foldcomp database into graphs."""
         print("Dataset: foldcomp clustered")
+        proc_dir = Path(self.processed_dir)
+
         with foldcomp.open(self.raw_dir + "/" + "afdb_rep_v4") as db:
-            for (name, pdb) in tqdm(db):
+            for i in tqdm(range(len(db))):
+                filename = proc_dir / f"data_{i}.pt"
+                if filename.is_file():
+                    continue
+                name, pdb = db[i]
                 pdb = ProtStructure(pdb)
-                graph = pdb.get_graph()
-                torch.save(graph, self.processed_dir + "/" + f"{name}.pt")
+                graph = Data(**pdb.get_graph())
+                graph.uniprot_id = name.split("-")[1]
+                torch.save(graph, filename)
+
+    def get(self, idx):
+        """Get graph by index."""
+        data = torch.load(os.path.join(self.processed_dir, f'data_{idx}.pt'))
+        return data
 
     def len(self):
         """Number of graphs in the dataset."""
-        return self._len
+        return 2278845
 
     @property
     def raw_file_names(self):
@@ -43,10 +54,11 @@ class FoldSeekDataset(Dataset):
     @property
     def processed_file_names(self):
         """All generated filenames."""
-        return [f"data_{i}.pt" for i in range(self.len())]
+        return [f"data_{i}.pt" for i in range(0, self.len(), 1000)]
 
 
 class DownstreamDataset(InMemoryDataset):
+    """Abstract class for downstream datasets."""
 
     splits = {"train": 0, "val": 1, "test": 2}
 
