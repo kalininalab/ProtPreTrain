@@ -23,42 +23,49 @@ class FoldSeekDataset(Dataset):
 
     def process(self):
         """Convert proteins from foldcomp database into graphs."""
-        print("Dataset: foldcomp clustered")
-        proc_dir = Path(self.processed_dir)
-
+        idx = 0
         with foldcomp.open(self.raw_paths[0]) as db:
-            for i in tqdm(range(len(db))):
-                filename = proc_dir / f"data_{i}.pt"
-                if filename.is_file():
+            for name, pdb in tqdm(db):
+                if " " in name:
                     continue
-                name, pdb = db[i]
                 pdb = ProtStructure(pdb)
-                data = Data(**pdb.get_graph())
-                data.uniprot_id = name.split("-")[1]
-                if self.pre_filter is not None and not self.pre_filter(data):
+                if len(pdb) > 1022:
                     continue
+                data = Data(**pdb.get_graph())
+                split = name.split("-")
+                if len(split) >= 2:
+                    data.uniprot_id = split[1]
+                else:
+                    data.uniprot_id = name
                 if self.pre_transform is not None:
                     data = self.pre_transform(data)
-                torch.save(data, filename)
+                torch.save(data, os.path.join(self.processed_dir, f"data_{idx}.pt"))
+                idx += 1
 
     def get(self, idx):
         """Get graph by index."""
-        data = torch.load(os.path.join(self.processed_dir, f'data_{idx}.pt'))
+        data = torch.load(os.path.join(self.processed_dir, f"data_{idx}.pt"))
         return data
 
     def len(self):
         """Number of graphs in the dataset."""
-        return 2278845
+        return len([x for x in Path(self.processed_dir).glob("data_*.pt")])
 
     @property
     def raw_file_names(self):
-        """List of raw files. I don't add pdb files, but create uniprot_ids.txt file."""
+        """The foldseek db."""
         return ["afdb_rep_v4", "afdb_rep_v4.dbtype", "afdb_rep_v4.index", "afdb_rep_v4.lookup", "afdb_rep_v4.source"]
 
     @property
     def processed_file_names(self):
         """All generated filenames."""
-        return [f"data_{i}.pt" for i in range(0, self.len(), 1000)]
+        return [f"data_{i}.pt" for i in range(self.len())]
+
+
+class FoldSeekSmallDataset(FoldSeekDataset):
+    @property
+    def raw_file_names(self):
+        return ["e_coli", "e_coli.dbtype", "e_coli.index", "e_coli.lookup", "e_coli.source"]
 
 
 class DownstreamDataset(InMemoryDataset):
@@ -171,7 +178,7 @@ class StabilityDataset(DownstreamDataset):
             df.set_index("id", inplace=True)
 
             with foldcomp.open(self.raw_paths[3], ids=ids) as db:
-                for (name, pdb) in tqdm(db):
+                for name, pdb in tqdm(db):
                     struct = ProtStructure(pdb)
                     graph = Data(**struct.get_graph())
                     graph["y"] = df.loc[name, "stability_score"][0]

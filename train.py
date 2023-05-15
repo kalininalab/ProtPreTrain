@@ -1,15 +1,14 @@
 import torch
 from pytorch_lightning.cli import LightningCLI
 
-from step.data import FoldSeekDataModule
+from step.data import FoldSeekDataModule, FoldSeekSmallDataModule
 from step.models.denoise import DenoiseModel
 from step.utils.cli import namespace_to_dict
 import wandb
-import torch_geometric
 import warnings
 
 # Ignore all deprecation warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore")
 
 
 torch.set_float32_matmul_precision("medium")
@@ -20,5 +19,5 @@ wandb.init(
     config=namespace_to_dict(cli.config),
 )
 model = cli.model
-model = torch_geometric.compile(model)
+# model = torch_geometric.compile(model)
 cli.trainer.fit(model, cli.datamodule)

@@ -37,14 +37,10 @@ model:
   alpha: 1.0
   weighted_loss: false
 data:
-  root: /scratch/SCRATCH_NVME/ilya/ProtPreTrain/data/foldseek
+  root: data/foldseek
   pre_transforms:
     - class_path: torch_geometric.transforms.Center
     - class_path: torch_geometric.transforms.NormalizeRotation
-    - class_path: torch_geometric.transforms.RadiusGraph
-      init_args:
-        r: 7.0
-    - class_path: torch_geometric.transforms.ToUndirected
   transforms:
     - class_path: step.data.PosNoise
       init_args:
@@ -56,7 +52,7 @@ data:
   num_workers: 16
   shuffle: true
   batch_sampling: true
-  max_num_nodes: 2048
+  max_num_nodes: 1024
 optimizer:
   class_path: torch.optim.AdamW
   init_args:

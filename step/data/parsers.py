@@ -37,6 +37,9 @@ CODE_TO_THREE = {v: k for k, v in THREE_TO_CODE.items()}
 
 
 def aminoacids(value: Union[str, int], target: str) -> Union[str, int]:
+    """Converts between one-letter, three-letter, and code representations of amino acids."""
+    if isinstance(value, str):
+        value = value.upper()
     if target == "one":
         if len(value) == 1:
             return value

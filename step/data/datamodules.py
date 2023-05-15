@@ -6,7 +6,7 @@ from torch_geometric.data import Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import BaseTransform
 
-from .datasets import FoldSeekDataset
+from .datasets import FoldSeekDataset, FoldSeekSmallDataset
 from .samplers import DynamicBatchSampler
 
 
@@ -61,4 +61,16 @@ class FoldSeekDataModule(LightningDataModule):
             batch_size=self.batch_size,
             shuffle=self.shuffle if shuffle else False,
             num_workers=self.num_workers,
+        )
+
+
+class FoldSeekSmallDataModule(FoldSeekDataModule):
+    def setup(self, stage: str = None):
+        """Load the individual datasets."""
+        pre_transform = T.Compose(self.pre_transforms)
+        transform = T.Compose(self.transforms)
+        self.train = FoldSeekSmallDataset(
+            root=self.root,
+            transform=transform,
+            pre_transform=pre_transform,
         )
