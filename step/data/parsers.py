@@ -1,11 +1,10 @@
 import gzip
 import os
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
-import numpy as np
+from typing import List, Union
 
-import pandas as pd
 import torch
+
 ONE_TO_THREE = {
     "A": "ALA",
     "R": "ARG",
@@ -32,22 +31,21 @@ ONE_TO_THREE = {
 
 THREE_TO_ONE = {v: k for k, v in ONE_TO_THREE.items()}
 
-THREE_TO_CODE = {
-    v: i for i, (k, v) in enumerate(ONE_TO_THREE.items())
-}
+THREE_TO_CODE = {v: i for i, (k, v) in enumerate(ONE_TO_THREE.items())}
 
 CODE_TO_THREE = {v: k for k, v in THREE_TO_CODE.items()}
 
 
 def aminoacids(value: Union[str, int], target: str) -> Union[str, int]:
-    value = str(value).upper()
     if target == "one":
         if len(value) == 1:
             return value
         elif len(value) == 3:
             return THREE_TO_ONE[value]
     elif target == "three":
-        if len(value) == 3:
+        if isinstance(value, int):
+            return CODE_TO_THREE[value]
+        elif len(value) == 3:
             return value
         elif len(value) == 1:
             return ONE_TO_THREE[value]

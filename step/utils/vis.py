@@ -12,7 +12,6 @@ from umap import UMAP
 from ..data.parsers import aminoacids
 
 
-
 def plot_loss_count_dist(losses: dict) -> Figure:
     """Plot distribution of times sampled vs avg loss of families."""
     fig = plt.figure()
@@ -31,7 +30,7 @@ def plot_aa_tsne(emb: torch.Tensor):
     emb_trans = tsne.fit_transform(emb)
     emb_trans = pd.DataFrame(emb_trans)
     emb_trans["size"] = 50
-    emb_trans["name"] = emb_trans.index.to_series().apply(lambda x: aminoacids('three', x))
+    emb_trans["name"] = emb_trans.index.to_series().apply(lambda x: aminoacids(x, "three"))
     emb_trans["type"] = [
         "hydrophobic",
         "positive",
@@ -176,7 +175,7 @@ def plot_node_embeddings(embeds: torch.Tensor, labels: torch.LongTensor, uniprot
     embedded_nodes = pca.fit_transform(embeds.detach().cpu().numpy())
     embedded_nodes = pd.DataFrame(embedded_nodes, columns=["x", "y"])
     embedded_nodes["name"] = labels.detach().cpu().numpy()
-    embedded_nodes["name"] = embedded_nodes["name"].apply(lambda x: node_decode[x])
+    embedded_nodes["name"] = embedded_nodes["name"].apply(lambda x: aminoacids(int(x), "three"))
     embedded_nodes["uniprot_id"] = uniprot_ids
     embedded_nodes["number"] = numbers
     return px.scatter(

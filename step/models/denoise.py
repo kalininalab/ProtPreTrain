@@ -9,7 +9,7 @@ from torch_geometric.nn import PointTransformerConv
 from torchmetrics import ConfusionMatrix
 from torchmetrics.functional.classification import accuracy
 
-from ..data.parsers import aminoacids
+from ..data.parsers import aminoacids, THREE_TO_ONE
 from ..utils import plot_aa_tsne, plot_confmat, plot_node_embeddings, plot_noise_pred
 
 
@@ -29,6 +29,7 @@ class DenoiseModel(LightningModule):
         weighted_loss: bool = False,
     ):
         super().__init__()
+        self.save_hyperparameters()
         self.weighted_loss = weighted_loss
         self.alpha = alpha
         self.feat_encode = torch.nn.Embedding(21, hidden_dim)
@@ -78,7 +79,7 @@ class DenoiseModel(LightningModule):
     def log_confmat(self):
         """Log confusion matrix to wandb."""
         confmat_df = self.confmat.compute().detach().cpu().numpy()
-        indices = list(aminoacids["three"])[:-1]
+        indices = list(THREE_TO_ONE)[:-1]
         confmat_df = pd.DataFrame(confmat_df, index=indices, columns=indices).round(2)
         self.confmat.reset()
         return plot_confmat(confmat_df)
@@ -112,7 +113,7 @@ class DenoiseModel(LightningModule):
         loss = noise_loss + self.alpha * pred_loss
         # acc = accuracy(batch.type_pred, batch.orig_x, task="multiclass")
         self.confmat.update(batch.type_pred, batch.orig_x)
-        self.log("train/loss", loss, on_step=True, on_epoch=True)
+        self.log("train/loss", loss, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
         if self.global_step % 100 == 0:
             wandb.log(
                 {

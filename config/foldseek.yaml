@@ -30,7 +30,7 @@ model:
   local_module: GENConv
   global_module: Performer
   hidden_dim: 512
-  num_layers: 24
+  num_layers: 16
   num_heads: 16
   dropout: 0.0
   attn_dropout: 0.0
