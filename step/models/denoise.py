@@ -29,7 +29,6 @@ class DenoiseModel(LightningModule):
         weighted_loss: bool = False,
     ):
         super().__init__()
-        self.save_hyperparameters()
         self.weighted_loss = weighted_loss
         self.alpha = alpha
         self.feat_encode = torch.nn.Embedding(21, hidden_dim)
@@ -103,7 +102,7 @@ class DenoiseModel(LightningModule):
         }
         wandb.log(figs)
 
-    def shared_step(self, batch: Data, step: int) -> dict:
+    def training_step(self, batch: Data, idx) -> dict:
         """Shared step for training and validation."""
         if self.global_step == 0:
             self.test_batch = batch.clone()
@@ -117,21 +116,17 @@ class DenoiseModel(LightningModule):
         if self.global_step % 100 == 0:
             wandb.log(
                 {
-                    f"{step}/loss": loss,
+                    f"train/loss": loss,
                     # f"{step}/acc": acc,
-                    f"{step}/noise_loss": noise_loss,
-                    f"{step}/pred_loss": pred_loss,
+                    f"train/noise_loss": noise_loss,
+                    f"train/pred_loss": pred_loss,
                 }
             )
         if self.global_step % 1000 == 0:
-            self.log_figs(step)
+            self.log_figs("train")
         return dict(
             loss=loss,
             noise_loss=noise_loss.detach(),
             pred_loss=pred_loss.detach(),
             # acc=acc.detach(),
         )
-
-    def training_step(self, batch):
-        """Just shared step"""
-        return self.shared_step(batch, "train")
