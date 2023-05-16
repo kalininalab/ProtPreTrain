@@ -7,10 +7,9 @@ from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
 from torch_geometric.nn import PointTransformerConv
 from torchmetrics import ConfusionMatrix
-from torchmetrics.functional.classification import accuracy
 
-from ..data.parsers import aminoacids, THREE_TO_ONE
-from ..utils import plot_aa_tsne, plot_confmat, plot_node_embeddings, plot_noise_pred
+from ..data.parsers import THREE_TO_ONE
+from ..utils import plot_aa_tsne, plot_confmat, plot_node_embeddings
 
 
 class DenoiseModel(LightningModule):
@@ -32,7 +31,7 @@ class DenoiseModel(LightningModule):
         self.weighted_loss = weighted_loss
         self.alpha = alpha
         self.feat_encode = torch.nn.Embedding(21, hidden_dim)
-        self.pos_encode = PointTransformerConv(hidden_dim, hidden_dim)
+        self.edge_encode = torch.nn.Linear(3, hidden_dim)
         self.node_encode = torch.nn.Sequential(
             *[
                 GPSLayer(
@@ -68,8 +67,8 @@ class DenoiseModel(LightningModule):
 
     def forward(self, batch: Data) -> Data:
         """Return updated batch with noise and node type predictions."""
-        feat_encode = self.feat_encode(batch.x)
-        batch.x = self.pos_encode(feat_encode, batch.pos, batch.edge_index)
+        batch.x = self.feat_encode(batch.x)
+        batch.edge_attr = self.edge_encode(batch.edge_attr)
         batch = self.node_encode(batch)
         batch.type_pred = self.type_pred(batch.x)
         batch.noise_pred = self.noise_pred(batch.x)

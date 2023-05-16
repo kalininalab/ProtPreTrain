@@ -12,7 +12,12 @@ warnings.filterwarnings("ignore")
 
 
 torch.set_float32_matmul_precision("medium")
-cli = LightningCLI(model_class=DenoiseModel, datamodule_class=FoldSeekDataModule, save_config_callback=None, run=False)
+cli = LightningCLI(
+    model_class=DenoiseModel,
+    datamodule_class=FoldSeekSmallDataModule,
+    save_config_callback=None,
+    run=False,
+)
 wandb.init(
     project="step",
     name="foldseek",

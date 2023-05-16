@@ -27,17 +27,17 @@ trainer:
   log_every_n_steps: 50
   accelerator: gpu
 model:
-  local_module: GENConv
+  local_module: GINE
   global_module: Performer
   hidden_dim: 512
   num_layers: 16
   num_heads: 16
   dropout: 0.0
   attn_dropout: 0.0
-  alpha: 1.0
+  alpha: 0.01
   weighted_loss: false
 data:
-  root: data/foldseek
+  root: data/foldseek_small
   pre_transforms:
     - class_path: torch_geometric.transforms.Center
     - class_path: torch_geometric.transforms.NormalizeRotation
@@ -46,6 +46,11 @@ data:
       init_args:
         sigma: 1.0
         plddt_dependent: false
+    - class_path: torch_geometric.transforms.RadiusGraph
+      init_args:
+        r: 7.0
+    - class_path: torch_geometric.transforms.ToUndirected
+    - class_path: torch_geometric.transforms.Spherical
     - class_path: step.data.MaskTypeAnkh
       init_args:
         pick_prob: 0.2
