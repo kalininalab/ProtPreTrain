@@ -1,0 +1,79 @@
+seed_everything: true
+trainer:
+  logger:
+    class_path: pytorch_lightning.loggers.WandbLogger
+    init_args:
+      log_model: true
+      project: step
+      name: fluorescence
+      dir: wandb
+      tags: [fluorescence, test]
+  enable_checkpointing: true
+  callbacks:
+    - class_path: pytorch_lightning.callbacks.StochasticWeightAveraging
+      init_args:
+        swa_lrs: 1e-2
+    - class_path: pytorch_lightning.callbacks.ModelCheckpoint
+      init_args:
+        monitor: train/loss
+        mode: min
+        dirpath: logs/fluorescence
+    - class_path: pytorch_lightning.callbacks.RichProgressBar
+    - class_path: pytorch_lightning.callbacks.RichModelSummary
+    - class_path: pytorch_lightning.callbacks.LearningRateMonitor
+  gradient_clip_val: 1.0
+  accelerator: gpu
+  devices: -1
+  max_epochs: 100
+  num_sanity_val_steps: 20
+  fast_dev_run: false
+model:
+  class_path: RegressionModel
+  init_args:
+    local_module: GENConv
+    global_module: Performer
+    hidden_dim: 64
+    num_layers: 8
+    num_heads: 8
+    dropout: 0.0
+    attn_dropout: 0.0
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 1.0e-4
+    weight_decay: 1.0e-2
+    betas: [0.9, 0.999]
+lr_scheduler:
+  class_path: cosine_annealing_warmup.CosineAnnealingWarmupRestarts
+  init_args:
+    first_cycle_steps: 10000
+    cycle_mult: 1.0
+    max_lr: 0.0001
+    min_lr: 0.00001
+    warmup_steps: 1000
+    gamma: 1.0
+data:
+  class_path: FluorescenceDataModule
+  init_args:
+    root: data/fluorescence
+    pre_transforms:
+      - class_path: torch_geometric.transforms.Center
+      - class_path: torch_geometric.transforms.NormalizeRotation
+    transforms:
+      - class_path: step.data.PosNoise
+        init_args:
+          sigma: 1.0
+          plddt_dependent: false
+      - class_path: torch_geometric.transforms.RadiusGraph
+        init_args:
+          r: 7.0
+      - class_path: torch_geometric.transforms.ToUndirected
+      - class_path: torch_geometric.transforms.Spherical
+      - class_path: step.data.MaskTypeAnkh
+        init_args:
+          pick_prob: 0.2
+    num_workers: 16
+    shuffle: true
+    batch_sampling: false
+    batch_size: 4
+    # max_num_nodes: 1024

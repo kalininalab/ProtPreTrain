@@ -18,7 +18,7 @@ class FoldSeekDataset(Dataset):
     Dataset for pre-training.
     """
 
-    def __init__(self, root: str, transform: Callable = None, pre_transform: Callable = None):
+    def __init__(self, root: str = "data/foldseek", transform: Callable = None, pre_transform: Callable = None):
         super().__init__(root, transform, pre_transform)
 
     def process(self):
@@ -49,7 +49,7 @@ class FoldSeekDataset(Dataset):
 
     def len(self):
         """Number of graphs in the dataset."""
-        return len([x for x in Path(self.processed_dir).glob("data_*.pt")])
+        return 2240576
 
     @property
     def raw_file_names(self):
@@ -59,7 +59,7 @@ class FoldSeekDataset(Dataset):
     @property
     def processed_file_names(self):
         """All generated filenames."""
-        return [f"data_{i}.pt" for i in range(self.len())]
+        return [f"data_{i}.pt" for i in range(0, self.len(), 1000)]
 
 
 class FoldSeekSmallDataset(FoldSeekDataset):

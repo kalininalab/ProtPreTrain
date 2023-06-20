@@ -5,7 +5,6 @@ import wandb
 from graphgps.layer.gps_layer import GPSLayer
 from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
-from torch_geometric.nn import PointTransformerConv
 from torchmetrics import ConfusionMatrix
 
 from ..data.parsers import THREE_TO_ONE
@@ -47,20 +46,16 @@ class DenoiseModel(LightningModule):
         )
         self.noise_pred = torch.nn.Sequential(
             torch.nn.Linear(hidden_dim, hidden_dim),
-            torch.nn.LayerNorm(hidden_dim),
-            torch.nn.GELU(),
+            torch.nn.ReLU(),
             torch.nn.Linear(hidden_dim, hidden_dim),
-            torch.nn.LayerNorm(hidden_dim),
-            torch.nn.GELU(),
+            torch.nn.ReLU(),
             torch.nn.Linear(hidden_dim, 3),
         )
         self.type_pred = torch.nn.Sequential(
             torch.nn.Linear(hidden_dim, hidden_dim),
-            torch.nn.LayerNorm(hidden_dim),
-            torch.nn.GELU(),
+            torch.nn.ReLU(),
             torch.nn.Linear(hidden_dim, hidden_dim),
-            torch.nn.LayerNorm(hidden_dim),
-            torch.nn.GELU(),
+            torch.nn.ReLU(),
             torch.nn.Linear(hidden_dim, 20),
         )
         self.confmat = ConfusionMatrix(task="multiclass", num_classes=20, normalize="true")

@@ -1,4 +1,4 @@
-seed_everything: true
+seed_everything: 42
 trainer:
   logger:
     class_path: pytorch_lightning.loggers.WandbLogger
@@ -7,7 +7,7 @@ trainer:
       project: step
       log_model: true
       dir: wandb
-      tags: [foldseek]
+      tags: [foldseek, big]
   enable_checkpointing: true
   callbacks:
     - class_path: pytorch_lightning.callbacks.StochasticWeightAveraging
@@ -30,14 +30,13 @@ model:
   local_module: GINE
   global_module: Performer
   hidden_dim: 512
-  num_layers: 16
+  num_layers: 24
   num_heads: 16
   dropout: 0.0
   attn_dropout: 0.0
   alpha: 0.01
   weighted_loss: false
 data:
-  root: data/foldseek_small
   pre_transforms:
     - class_path: torch_geometric.transforms.Center
     - class_path: torch_geometric.transforms.NormalizeRotation
@@ -70,9 +69,9 @@ optimizer:
 lr_scheduler:
   class_path: cosine_annealing_warmup.CosineAnnealingWarmupRestarts
   init_args:
-    first_cycle_steps: 1000
+    first_cycle_steps: 10000
     cycle_mult: 1.0
     max_lr: 0.0001
     min_lr: 0.00001
-    warmup_steps: 50
+    warmup_steps: 1000
     gamma: 1.0
