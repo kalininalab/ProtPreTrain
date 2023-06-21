@@ -5,6 +5,7 @@ from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
 import torchmetrics.functional as metrics
 from torch_geometric import nn
+import wandb
 
 class RegressionModel(LightningModule):
     """Uses GraphGPS transformer layers to encode the graph and predict the Y value."""
@@ -63,9 +64,9 @@ class RegressionModel(LightningModule):
         loss = F.mse_loss(pred_y, y)
         mae = metrics.mean_absolute_error(pred_y, y)
         r2 = metrics.r2_score(pred_y, y)
-        self.log(f"{step_name}/loss", loss, on_epoch=True, on_step=True, batch_size=batch.num_graphs)
-        self.log(f"{step_name}/mae", mae, on_epoch=True, on_step=False, batch_size=batch.num_graphs)
-        self.log(f"{step_name}/r2", r2, on_epoch=True, on_step=False, batch_size=batch.num_graphs)
+        self.log(f"{step_name}/loss", loss,batch_size=batch.num_graphs)
+        self.log(f"{step_name}/mae", mae, batch_size=batch.num_graphs)
+        self.log(f"{step_name}/r2", r2, batch_size=batch.num_graphs)
         return dict(
             loss=loss,
             mae=mae,
@@ -74,6 +75,8 @@ class RegressionModel(LightningModule):
 
     def training_step(self, batch: Data, batch_idx: int) -> dict:
         """Training step."""
+        if self.global_step == 0: 
+            wandb.define_metric('val/loss', summary='min')
         return self.shared_step(batch, "train")
 
     def validation_step(self, batch: Data, batch_idx: int) -> dict:

@@ -77,7 +77,6 @@ def plot_noise_pred(
     width: int = 800,
     height: int = 800,
 ):
-
     """Plot the predicted coords vs real coords."""
     loss = F.mse_loss(pos, pred_pos, reduction="none").mean(dim=1).detach().cpu().numpy()
     df = pd.DataFrame(pos.detach().cpu().numpy(), columns=["x", "y", "z"])
@@ -188,3 +187,19 @@ def plot_node_embeddings(embeds: torch.Tensor, labels: torch.LongTensor, uniprot
         height=400,
         color_discrete_sequence=px.colors.qualitative.Alphabet,
     )
+
+
+def regression_plot(y: torch.Tensor, y_hat: torch.Tensor) -> go.Figure:
+    """Plot regression plot."""
+    mae_each = (y_hat - y).abs()
+    fig = px.scatter(
+        x=y,
+        y=y_hat,
+        color=mae_each,
+        marginal_x="histogram",
+        marginal_y="histogram",
+        width=1000,
+        height=1000,
+    )
+    fig.update_layout(xaxis_title="Y_hat", yaxis_title="Y")
+    return fig

@@ -1,26 +1,30 @@
 seed_everything: true
 trainer:
   logger:
-    class_path: pytorch_lightning.loggers.WandbLogger
+    class_path: WandbLogger
     init_args:
-      log_model: true
+      log_model: all
       project: step
-      name: fluorescence
+      # name: stability
       dir: wandb
-      tags: [fluorescence, test]
   enable_checkpointing: true
   callbacks:
-    - class_path: pytorch_lightning.callbacks.StochasticWeightAveraging
+    - class_path: StochasticWeightAveraging
       init_args:
         swa_lrs: 1e-2
-    - class_path: pytorch_lightning.callbacks.ModelCheckpoint
+    - class_path: ModelCheckpoint
       init_args:
-        monitor: train/loss
+        monitor: val/loss
         mode: min
         dirpath: logs/fluorescence
-    - class_path: pytorch_lightning.callbacks.RichProgressBar
-    - class_path: pytorch_lightning.callbacks.RichModelSummary
-    - class_path: pytorch_lightning.callbacks.LearningRateMonitor
+    - class_path: RichProgressBar
+    - class_path: RichModelSummary
+    - class_path: LearningRateMonitor
+    - class_path: EarlyStopping
+      init_args:
+        monitor: val/loss
+        patience: 10
+        mode: min
   gradient_clip_val: 1.0
   accelerator: gpu
   devices: -1
@@ -33,7 +37,7 @@ model:
     local_module: GENConv
     global_module: Performer
     hidden_dim: 64
-    num_layers: 8
+    num_layers: 4
     num_heads: 8
     dropout: 0.0
     attn_dropout: 0.0
@@ -46,17 +50,17 @@ optimizer:
 lr_scheduler:
   class_path: cosine_annealing_warmup.CosineAnnealingWarmupRestarts
   init_args:
-    first_cycle_steps: 10000
+    first_cycle_steps: 1000
     cycle_mult: 1.0
     max_lr: 0.0001
-    min_lr: 0.00001
-    warmup_steps: 1000
+    min_lr: 0.000001
+    warmup_steps: 100
     gamma: 1.0
 data:
-  class_path: FluorescenceDataModule
+  # class_path: StabilityDataModule
   init_args:
-    root: data/fluorescence
     pre_transforms:
+    
       - class_path: torch_geometric.transforms.Center
       - class_path: torch_geometric.transforms.NormalizeRotation
     transforms:
@@ -75,5 +79,5 @@ data:
     num_workers: 16
     shuffle: true
     batch_sampling: false
-    batch_size: 4
+    batch_size: 512
     # max_num_nodes: 1024

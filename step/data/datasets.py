@@ -72,9 +72,10 @@ class DownstreamDataset(InMemoryDataset):
     """Abstract class for downstream datasets."""
 
     splits = {"train": 0, "val": 1, "test": 2}
+    root = None
 
-    def __init__(self, root, split="train", transform=None, pre_transform=None, pre_filter=None):
-        super().__init__(root, transform, pre_transform, pre_filter)
+    def __init__(self, split="train", transform=None, pre_transform=None, pre_filter=None):
+        super().__init__(self.root, transform, pre_transform, pre_filter)
         self.data, self.slices = torch.load(self.processed_paths[self.splits[split]])
 
     @property
@@ -88,6 +89,7 @@ class FluorescenceDataset(DownstreamDataset):
 
     url = "http://s3.amazonaws.com/songlabdata/proteindata/data_raw_pytorch/fluorescence.tar.gz"
     struct_url = "https://alphafold.ebi.ac.uk/files/AF-P42212-F1-model_v4.pdb"
+    root = "data/fluorescence"
 
     def download(self):
         """Download the dataset."""
@@ -148,6 +150,7 @@ class FluorescenceDataset(DownstreamDataset):
 
 class StabilityDataset(DownstreamDataset):
     """Predict stability for various proteins."""
+    root = "data/stability"
 
     @property
     def raw_file_names(self):

@@ -15,7 +15,6 @@ class FoldSeekDataModule(LightningDataModule):
 
     def __init__(
         self,
-        root: str = "data/foldseek",
         transforms: List[BaseTransform] = [],
         pre_transforms: List[BaseTransform] = [],
         batch_size: int = 128,
@@ -51,7 +50,6 @@ class FoldSeekDataModule(LightningDataModule):
         pre_transform = T.Compose(self.pre_transforms)
         transform = T.Compose(self.transforms)
         self.train = FoldSeekDataset(
-            root=self.root,
             transform=transform,
             pre_transform=pre_transform,
         )
@@ -78,10 +76,10 @@ class FoldSeekSmallDataModule(FoldSeekDataModule):
 
 class DownstreamDataModule(LightningDataModule):
     dataset_class = None
+    root = None
 
     def __init__(
         self,
-        root: str = None,
         transforms: List[BaseTransform] = [],
         pre_transforms: List[BaseTransform] = [],
         batch_size: int = 128,
@@ -89,9 +87,9 @@ class DownstreamDataModule(LightningDataModule):
         shuffle: bool = True,
         batch_sampling: bool = False,
         max_num_nodes: int = 0,
+        **kwargs,
     ):
         super().__init__()
-        self.root = root
         self.transforms = transforms
         self.pre_transforms = pre_transforms
         self.batch_size = batch_size
@@ -99,6 +97,7 @@ class DownstreamDataModule(LightningDataModule):
         self.shuffle = shuffle
         self.batch_sampling = batch_sampling
         self.max_num_nodes = max_num_nodes
+        self.kwargs = kwargs
 
     def _get_dataloader(self, ds: Dataset) -> DataLoader:
         if self.batch_sampling:
@@ -125,19 +124,19 @@ class DownstreamDataModule(LightningDataModule):
         pre_transform = T.Compose(self.pre_transforms)
         transform = T.Compose(self.transforms)
         self.train = self.dataset_class(
-            root=self.root,
             transform=transform,
             pre_transform=pre_transform,
+            **self.kwargs,
         )
         self.val = self.dataset_class(
-            root=self.root,
             transform=transform,
             pre_transform=pre_transform,
+            **self.kwargs,
         )
         self.test = self.dataset_class(
-            root=self.root,
             transform=transform,
             pre_transform=pre_transform,
+            **self.kwargs,
         )
 
     def _dl_kwargs(self, shuffle: bool = False):

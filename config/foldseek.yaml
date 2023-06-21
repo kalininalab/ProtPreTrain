@@ -1,26 +1,25 @@
 seed_everything: 42
 trainer:
   logger:
-    class_path: pytorch_lightning.loggers.WandbLogger
+    class_path: WandbLogger
     init_args:
       name: foldseek
       project: step
       log_model: true
       dir: wandb
-      tags: [foldseek, big]
   enable_checkpointing: true
   callbacks:
-    - class_path: pytorch_lightning.callbacks.StochasticWeightAveraging
+    - class_path: StochasticWeightAveraging
       init_args:
         swa_lrs: 0.02
-    - class_path: pytorch_lightning.callbacks.ModelCheckpoint
+    - class_path: ModelCheckpoint
       init_args:
         monitor: train/loss
         save_top_k: 3
         mode: min
-    - class_path: pytorch_lightning.callbacks.RichProgressBar
-    - class_path: pytorch_lightning.callbacks.RichModelSummary
-    - class_path: pytorch_lightning.callbacks.LearningRateMonitor
+    - class_path: RichProgressBar
+    - class_path: RichModelSummary
+    - class_path: LearningRateMonitor
   gradient_clip_val: 1.0
   accumulate_grad_batches: 4
   max_epochs: 10000
