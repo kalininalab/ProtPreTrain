@@ -21,6 +21,7 @@ class RegressionModel(LightningModule):
         attn_dropout: float = 0.1,
     ):
         super().__init__()
+        self.save_hyperparameters()
         self.feat_encode = torch.nn.Embedding(21, hidden_dim)
         self.edge_encode = torch.nn.Linear(3, hidden_dim)
         self.node_encode = torch.nn.Sequential(
@@ -40,10 +41,10 @@ class RegressionModel(LightningModule):
             hidden_dim, num_encoder_blocks=4, num_decoder_blocks=4, heads=4, dropout=dropout
         )
         self.linear = torch.nn.Sequential(
-            torch.nn.Linear(hidden_dim, hidden_dim),
+            torch.nn.Linear(hidden_dim, hidden_dim*2),
             # torch.nn.LayerNorm(hidden_dim),
             torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, hidden_dim),
+            torch.nn.Linear(hidden_dim*2, hidden_dim),
             # torch.nn.LayerNorm(hidden_dim),
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_dim, 1),

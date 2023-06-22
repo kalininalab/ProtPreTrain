@@ -18,8 +18,8 @@ warnings.filterwarnings("ignore")
 torch.set_float32_matmul_precision("medium")
 
 cli = LightningCLI(
-    save_config_callback=None,
     run=False,
+    save_config_callback=None,
 )
 
 model = cli.model

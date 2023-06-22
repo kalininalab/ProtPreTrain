@@ -27,6 +27,7 @@ class DenoiseModel(LightningModule):
         weighted_loss: bool = False,
     ):
         super().__init__()
+        self.save_hyperparameters()
         self.weighted_loss = weighted_loss
         self.alpha = alpha
         self.feat_encode = torch.nn.Embedding(21, hidden_dim)
