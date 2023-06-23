@@ -6,7 +6,14 @@ from torch_geometric.data import Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import BaseTransform
 
-from .datasets import FoldSeekDataset, FoldSeekSmallDataset, FluorescenceDataset, StabilityDataset
+from .datasets import (
+    FoldSeekDataset,
+    FoldSeekSmallDataset,
+    FluorescenceDataset,
+    StabilityDataset,
+    FluorescenceESMDataset,
+    StabilityESMDataset,
+)
 from .samplers import DynamicBatchSampler
 
 
@@ -24,7 +31,6 @@ class FoldSeekDataModule(LightningDataModule):
         max_num_nodes: int = 0,
     ):
         super().__init__()
-        self.root = root
         self.transforms = transforms
         self.pre_transforms = pre_transforms
         self.batch_size = batch_size
@@ -76,7 +82,6 @@ class FoldSeekSmallDataModule(FoldSeekDataModule):
 
 class DownstreamDataModule(LightningDataModule):
     dataset_class = None
-    root = None
 
     def __init__(
         self,
@@ -153,3 +158,11 @@ class FluorescenceDataModule(DownstreamDataModule):
 
 class StabilityDataModule(DownstreamDataModule):
     dataset_class = StabilityDataset
+
+
+class FluorescenceESMDataModule(DownstreamDataModule):
+    dataset_class = FluorescenceESMDataset
+
+
+class StabilityESMDataModule(DownstreamDataModule):
+    dataset_class = StabilityESMDataset

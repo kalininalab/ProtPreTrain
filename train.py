@@ -1,5 +1,5 @@
 import torch
-from pytorch_lightning.cli import LightningCLI
+from pytorch_lightning.cli import LightningCLI, ReduceLROnPlateau
 
 
 from step.data import (
@@ -27,3 +27,4 @@ datamodule = cli.datamodule
 datamodule.setup()
 cli.trainer.logger.experiment.config.update(namespace_to_dict(cli.config))
 cli.trainer.fit(model, datamodule=datamodule)
+cli.trainer.test(model, datamodule=datamodule)
