@@ -7,11 +7,11 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import BaseTransform
 
 from .datasets import (
+    FluorescenceDataset,
+    FluorescenceESMDataset,
     FoldSeekDataset,
     FoldSeekSmallDataset,
-    FluorescenceDataset,
     StabilityDataset,
-    FluorescenceESMDataset,
     StabilityESMDataset,
 )
 from .samplers import DynamicBatchSampler
@@ -69,6 +69,8 @@ class FoldSeekDataModule(LightningDataModule):
 
 
 class FoldSeekSmallDataModule(FoldSeekDataModule):
+    """Small subset of foldseek for debugging."""
+
     def setup(self, stage: str = None):
         """Load the individual datasets."""
         pre_transform = T.Compose(self.pre_transforms)
@@ -81,6 +83,8 @@ class FoldSeekSmallDataModule(FoldSeekDataModule):
 
 
 class DownstreamDataModule(LightningDataModule):
+    """Abstract class for downstream tasks."""
+
     dataset_class = None
 
     def __init__(
@@ -153,16 +157,24 @@ class DownstreamDataModule(LightningDataModule):
 
 
 class FluorescenceDataModule(DownstreamDataModule):
+    """Predict fluorescence change."""
+
     dataset_class = FluorescenceDataset
 
 
 class StabilityDataModule(DownstreamDataModule):
+    """Predict peptide stability."""
+
     dataset_class = StabilityDataset
 
 
 class FluorescenceESMDataModule(DownstreamDataModule):
+    """Predict fluorescence change with ESM features."""
+
     dataset_class = FluorescenceESMDataset
 
 
 class StabilityESMDataModule(DownstreamDataModule):
+    """Predict peptide stability with ESM features."""
+
     dataset_class = StabilityESMDataset

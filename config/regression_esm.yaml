@@ -14,11 +14,9 @@ trainer:
         monitor: val/loss
         mode: min
         dirpath: logs
-    # - class_path: StochasticWeightAveraging
-    #   init_args:
-    #     swa_lrs: 1e-2
     - class_path: RichProgressBar
     - class_path: RichModelSummary
+    - class_path: LearningRateMonitor
     - class_path: EarlyStopping
       init_args:
         monitor: val/loss
@@ -27,19 +25,18 @@ trainer:
   gradient_clip_val: 0.0
   accelerator: gpu
   devices: -1
-  max_epochs: 1000
+  max_epochs: 10000
   num_sanity_val_steps: 2
   fast_dev_run: false
 model:
   class_path: RegressionESMModel
   init_args:
-    hidden_dim: 256
-    num_layers: 2
-    dropout: 0.2
+    hidden_dim: 1024
+    dropout: 0.3
 optimizer:
-  class_path: torch.optim.Adam
+  class_path: torch.optim.AdamW
   init_args:
-    lr: 1.0e-5
+    lr: 1.0e-3
 # lr_scheduler:
 #   class_path: cosine_annealing_warmup.CosineAnnealingWarmupRestarts
 #   init_args:

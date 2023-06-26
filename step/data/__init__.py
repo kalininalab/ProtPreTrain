@@ -1,17 +1,17 @@
 from .datamodules import (
+    FluorescenceDataModule,
+    FluorescenceESMDataModule,
     FoldSeekDataModule,
     FoldSeekSmallDataModule,
-    FluorescenceDataModule,
     StabilityDataModule,
-    FluorescenceESMDataModule,
     StabilityESMDataModule,
 )
 from .datasets import (
+    FluorescenceDataset,
+    FluorescenceESMDataset,
     FoldSeekDataset,
     FoldSeekSmallDataset,
-    FluorescenceDataset,
     StabilityDataset,
-    FluorescenceESMDataset,
     StabilityESMDataset,
 )
 from .downstream import apply_edits, compute_edits

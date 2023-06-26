@@ -8,9 +8,6 @@ trainer:
       dir: wandb
       tags: [gcn, test]
   callbacks:
-    # - class_path: StochasticWeightAveraging
-    #   init_args:
-    #     swa_lrs: 1e-2
     - class_path: ModelCheckpoint
       init_args:
         monitor: val/loss
@@ -35,26 +32,15 @@ model:
   init_args:
     local_module: GAT
     global_module: Performer
-    hidden_dim: 256
+    hidden_dim: 512
     num_layers: 4
-    num_heads: 8
-    dropout: 0.0
-    attn_dropout: 0.0
+    num_heads: 4
+    dropout: 0.1
+    attn_dropout: 0.1
 optimizer:
   class_path: torch.optim.AdamW
   init_args:
-    lr: 1.0e-4
-    weight_decay: 0.0
-    betas: [0.9, 0.999]
-# lr_scheduler:
-#   class_path: cosine_annealing_warmup.CosineAnnealingWarmupRestarts
-#   init_args:
-#     first_cycle_steps: 1000
-#     cycle_mult: 1.0
-#     max_lr: 1.0e-3
-#     min_lr: 1.0e-5
-#     warmup_steps: 100
-#     gamma: 1.0
+    lr: 1.0e-3
 lr_scheduler:
   class_path: ReduceLROnPlateau
   init_args:
@@ -71,18 +57,11 @@ data:
       - class_path: torch_geometric.transforms.Center
       - class_path: torch_geometric.transforms.NormalizeRotation
     transforms:
-      - class_path: step.data.PosNoise
-        init_args:
-          sigma: 1.0
-          plddt_dependent: false
       - class_path: torch_geometric.transforms.RadiusGraph
         init_args:
           r: 7.0
       - class_path: torch_geometric.transforms.ToUndirected
       - class_path: torch_geometric.transforms.Spherical
-      - class_path: step.data.MaskTypeAnkh
-        init_args:
-          pick_prob: 0.2
     num_workers: 16
     shuffle: true
     batch_sampling: false

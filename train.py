@@ -1,17 +1,11 @@
+import warnings
+
 import torch
 from pytorch_lightning.cli import LightningCLI, ReduceLROnPlateau
 
-
-from step.data import (
-    FluorescenceDataModule,
-    StabilityDataModule,
-    FoldSeekDataModule,
-    FoldSeekSmallDataModule,
-)
-from step.models import RegressionModel, DenoiseModel
-import warnings
+from step.data import FluorescenceDataModule, FoldSeekDataModule, FoldSeekSmallDataModule, StabilityDataModule
+from step.models import DenoiseModel, RegressionModel
 from step.utils.cli import namespace_to_dict
-
 
 # Ignore all deprecation warnings
 warnings.filterwarnings("ignore")

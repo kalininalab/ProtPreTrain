@@ -1,14 +1,16 @@
 import pandas as pd
 import torch
 import torch.nn.functional as F
-import wandb
 from graphgps.layer.gps_layer import GPSLayer
 from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
 from torchmetrics import ConfusionMatrix
 
+import wandb
+
 from ..data.parsers import THREE_TO_ONE
 from ..utils import plot_aa_tsne, plot_confmat, plot_node_embeddings
+from .regression import SimpleMLP
 
 
 class DenoiseModel(LightningModule):
@@ -45,20 +47,8 @@ class DenoiseModel(LightningModule):
                 for _ in range(num_layers)
             ]
         )
-        self.noise_pred = torch.nn.Sequential(
-            torch.nn.Linear(hidden_dim, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, 3),
-        )
-        self.type_pred = torch.nn.Sequential(
-            torch.nn.Linear(hidden_dim, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, 20),
-        )
+        self.noise_pred = SimpleMLP(hidden_dim, hidden_dim, 3, dropout)
+        self.type_pred = SimpleMLP(hidden_dim, hidden_dim, 20, dropout)
         self.confmat = ConfusionMatrix(task="multiclass", num_classes=20, normalize="true")
 
     def forward(self, batch: Data) -> Data:
@@ -111,10 +101,10 @@ class DenoiseModel(LightningModule):
         if self.global_step % 100 == 0:
             wandb.log(
                 {
-                    f"train/loss": loss,
+                    "train/loss": loss,
                     # f"{step}/acc": acc,
-                    f"train/noise_loss": noise_loss,
-                    f"train/pred_loss": pred_loss,
+                    "train/noise_loss": noise_loss,
+                    "train/pred_loss": pred_loss,
                 }
             )
         if self.global_step % 1000 == 0:

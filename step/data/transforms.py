@@ -34,6 +34,7 @@ class MaskType(BaseTransform):
         batch.mask = mask
         return batch
 
+
 class MaskTypeAnkh(BaseTransform):
     """Ensures each amino acid is masked at least once in a graph."""
 
@@ -57,7 +58,7 @@ class MaskTypeAnkh(BaseTransform):
             all_indices = set(range(N))
             remaining_indices = list(all_indices - mask)
             random.shuffle(remaining_indices)
-            mask = list(mask) + remaining_indices[:n - len(mask)]
+            mask = list(mask) + remaining_indices[: n - len(mask)]
             mask = torch.tensor(list(mask))
         batch.orig_x = batch.x.clone()
         batch.x[mask] = 20
