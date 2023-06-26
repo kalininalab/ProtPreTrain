@@ -11,6 +11,8 @@ import wandb
 
 
 class SimpleMLP(torch.nn.Module):
+    """Simple MLP for output heads"""
+
     def __init__(self, in_dim: int, hid_dim: int, out_dim: int, dropout: float = 0.0):
         super().__init__()
         self.main = torch.nn.Sequential(
@@ -21,15 +23,34 @@ class SimpleMLP(torch.nn.Module):
         )
 
     def forward(self, x):
+        """"""
         return self.main(x)
 
 
-class RegressionBaseModel(LightningModule):
-    """Uses GraphGPS transformer layers to encode the graph and predict the Y value."""
+class BaseModel(LightningModule):
+    """Base class for all downstream stuff."""
 
     def __init__(self):
         super().__init__()
         self.save_hyperparameters()
+
+    def training_step(self, batch: Data, batch_idx: int) -> dict:
+        """Training step."""
+        if self.global_step == 0:
+            wandb.define_metric("val/loss", summary="min")
+        return self.shared_step(batch, "train")
+
+    def validation_step(self, batch: Data, batch_idx: int) -> dict:
+        """Validation step."""
+        return self.shared_step(batch, "val")
+
+    def test_step(self, batch: Data, batch_idx: int) -> dict:
+        """Test step."""
+        return self.shared_step(batch, "test")
+
+
+class RegressionBaseModel(BaseModel):
+    """Base for regression, only defines shared steps"""
 
     def shared_step(self, batch: Data, step_name: str) -> dict:
         """Shared step for training and validation."""
@@ -49,20 +70,6 @@ class RegressionBaseModel(LightningModule):
             r2=r2,
             corrcoef=corrcoef,
         )
-
-    def training_step(self, batch: Data, batch_idx: int) -> dict:
-        """Training step."""
-        if self.global_step == 0:
-            wandb.define_metric("val/loss", summary="min")
-        return self.shared_step(batch, "train")
-
-    def validation_step(self, batch: Data, batch_idx: int) -> dict:
-        """Validation step."""
-        return self.shared_step(batch, "val")
-
-    def test_step(self, batch: Data, batch_idx: int) -> dict:
-        """Test step."""
-        return self.shared_step(batch, "test")
 
 
 class RegressionModel(RegressionBaseModel):
@@ -117,6 +124,23 @@ class RegressionModel(RegressionBaseModel):
 
 class RegressionESMModel(RegressionBaseModel):
     """Uses ESM."""
+
+    def __init__(
+        self,
+        in_dim: int = 1280,
+        hidden_dim: int = 512,
+        dropout: float = 0.2,
+    ):
+        super().__init__()
+        self.linear = SimpleMLP(in_dim, hidden_dim, 1, dropout)
+
+    def forward(self, batch: Data) -> Data:
+        """Return updated batch with noise and node type predictions."""
+        return self.linear(batch.x.view(batch.num_graphs, -1))
+
+
+class MDNESMModel(RegressionBaseModel):
+    """Uses ESM and MDN."""
 
     def __init__(
         self,

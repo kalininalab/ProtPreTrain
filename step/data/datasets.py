@@ -9,8 +9,8 @@ import torch
 from torch_geometric.data import Data, Dataset, InMemoryDataset, download_url, extract_tar
 from tqdm import tqdm
 
-from .downstream import apply_edits, compute_edits
 from .parsers import ProtStructure
+from .utils import apply_edits, compute_edits
 
 
 class FoldSeekDataset(Dataset):
@@ -63,6 +63,8 @@ class FoldSeekDataset(Dataset):
 
 
 class FoldSeekSmallDataset(FoldSeekDataset):
+    """For debugging, only E. Coli."""
+
     @property
     def raw_file_names(self):
         return ["e_coli", "e_coli.dbtype", "e_coli.index", "e_coli.lookup", "e_coli.source"]
@@ -239,8 +241,12 @@ class ESMDataset(DownstreamDataset):
 
 
 class FluorescenceESMDataset(ESMDataset):
+    """GFP fluorescence using ESM as features"""
+
     root = "data/fluorescence_esm"
 
 
 class StabilityESMDataset(ESMDataset):
+    """Peptide stability using ESM as features"""
+
     root = "data/stability_esm"
