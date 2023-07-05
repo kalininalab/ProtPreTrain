@@ -199,15 +199,3 @@ class StabilityDataModule(DownstreamDataModule):
     """Predict peptide stability."""
 
     dataset_class = StabilityDataset
-
-
-class FluorescenceESMDataModule(DownstreamDataModule):
-    """Predict fluorescence change with ESM features."""
-
-    dataset_class = FluorescenceESMDataset
-
-
-class StabilityESMDataModule(DownstreamDataModule):
-    """Predict peptide stability with ESM features."""
-
-    dataset_class = StabilityESMDataset
