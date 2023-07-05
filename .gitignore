@@ -11,3 +11,4 @@ data/*
 *.ipynb
 logs/
 artifacts/
+checkpoints/
