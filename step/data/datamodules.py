@@ -147,16 +147,19 @@ class DownstreamDataModule(LightningDataModule):
         pre_transform = T.Compose(self.pre_transforms)
         transform = T.Compose(self.transforms)
         self.train = self.dataset_class(
+            "train",
             transform=transform,
             pre_transform=pre_transform,
             **self.kwargs,
         )
         self.val = self.dataset_class(
+            "val",
             transform=transform,
             pre_transform=pre_transform,
             **self.kwargs,
         )
         self.test = self.dataset_class(
+            "test",
             transform=transform,
             pre_transform=pre_transform,
             **self.kwargs,
@@ -164,8 +167,8 @@ class DownstreamDataModule(LightningDataModule):
         trainer = Trainer(callbacks=[], logger=False, accelerator="gpu", precision="bf16-mixed")
         model = self.load_pretrained_model()
         for split in ["train", "val", "test"]:
-            dl = getattr(self, f"{split}_dataloader")
-            result = trainer.predict(model, dl())
+            dl = self._get_dataloader(getattr(self, split))
+            result = trainer.predict(model, dl)
             data_list = []
             for batch in result:
                 for i in range(len(batch)):

@@ -80,7 +80,7 @@ class DownstreamDataset(InMemoryDataset):
     splits = {"train": 0, "val": 1, "test": 2}
     root = None
 
-    def __init__(self, split="train", transform=None, pre_transform=None, pre_filter=None):
+    def __init__(self, split: str, transform=None, pre_transform=None, pre_filter=None):
         super().__init__(self.root, transform, pre_transform, pre_filter)
         self.data, self.slices = torch.load(self.processed_paths[self.splits[split]])
 

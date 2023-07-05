@@ -1,18 +1,24 @@
+import warnings
+
 import torch
-import torch_geometric.transforms as T
+from pytorch_lightning.cli import LightningCLI, ReduceLROnPlateau
 
-import wandb
-from step.data import FluorescenceDataModule
+from step.data import FluorescenceDataModule, StabilityDataModule
+from step.models import RegressionModel
+from step.utils.cli import namespace_to_dict
 
+# Ignore all deprecation warnings
+warnings.filterwarnings("ignore")
 torch.set_float32_matmul_precision("medium")
 
-# - class_path: torch_geometric.transforms.RadiusGraph
-#         init_args:
-#           r: 7.0
-#       - class_path: torch_geometric.transforms.ToUndirected
-#       - class_path: torch_geometric.transforms.Spherical
+cli = LightningCLI(
+    run=False,
+    save_config_callback=None,
+)
 
-transforms = [T.RadiusGraph(7), T.ToUndirected(), T.Spherical()]
-wandb.init(project="fluorescence", name="debug")
-dm = FluorescenceDataModule("ilsenatorov/step/model-2lw34cxd:best", transforms=transforms)
-dm.setup()
+model = cli.model
+datamodule = cli.datamodule
+# datamodule.setup()
+cli.trainer.logger.experiment.config.update(namespace_to_dict(cli.config))
+cli.trainer.fit(model, datamodule=datamodule)
+cli.trainer.test(model, datamodule=datamodule)

@@ -4,22 +4,22 @@ trainer:
     class_path: WandbLogger
     init_args:
       log_model: all
-      project: step
+      project: fluorescence
       dir: wandb
-      tags: [gcn, test]
+      tags: [test]
   callbacks:
     - class_path: ModelCheckpoint
       init_args:
         monitor: val/loss
         mode: min
-        dirpath: logs
+        dirpath: checkpoints
     - class_path: RichProgressBar
     - class_path: RichModelSummary
     - class_path: LearningRateMonitor
     - class_path: EarlyStopping
       init_args:
         monitor: val/loss
-        patience: 20
+        patience: 50
         mode: min
   gradient_clip_val: 0.0
   accelerator: gpu
@@ -30,13 +30,8 @@ trainer:
 model:
   class_path: RegressionModel
   init_args:
-    local_module: GAT
-    global_module: Performer
     hidden_dim: 512
-    num_layers: 4
-    num_heads: 4
-    dropout: 0.1
-    attn_dropout: 0.1
+    dropout: 0.2
 optimizer:
   class_path: torch.optim.AdamW
   init_args:
@@ -47,12 +42,13 @@ lr_scheduler:
     mode: min
     monitor: val/loss
     factor: 0.1
-    patience: 10
+    patience: 20
     min_lr: 1.0e-7
     verbose: true
 data:
-  # class_path: StabilityDataModule
+  class_path: FluorescenceDataModule
   init_args:
+    feature_extract_model: ilsenatorov/step/model-2qss8cgz:v0
     pre_transforms:
       - class_path: torch_geometric.transforms.Center
       - class_path: torch_geometric.transforms.NormalizeRotation
@@ -62,8 +58,8 @@ data:
           r: 7.0
       - class_path: torch_geometric.transforms.ToUndirected
       - class_path: torch_geometric.transforms.Spherical
-    num_workers: 16
-    shuffle: true
+    num_workers: 8
+    shuffle: false
     batch_sampling: false
     batch_size: 256
     # max_num_nodes: 1024
