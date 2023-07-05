@@ -76,7 +76,6 @@ class FoldSeekSmallDataModule(FoldSeekDataModule):
         pre_transform = T.Compose(self.pre_transforms)
         transform = T.Compose(self.transforms)
         self.train = FoldSeekSmallDataset(
-            root=self.root,
             transform=transform,
             pre_transform=pre_transform,
         )

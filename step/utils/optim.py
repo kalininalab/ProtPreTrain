@@ -1,3 +1,5 @@
+import math
+
 import torch
 
 
@@ -25,7 +27,6 @@ class WarmUpCosineLR(torch.optim.lr_scheduler._LRScheduler):
 
     def _get_warmup_lr(self):
         lr = self.start_lr + (self.max_lr - self.start_lr) * self.step_count / self.warmup_steps
-        print(lr)
         return lr
 
     def _get_cosine_lr(self):
@@ -35,7 +36,6 @@ class WarmUpCosineLR(torch.optim.lr_scheduler._LRScheduler):
             * (1 + math.cos(math.pi * (self.step_count - self.warmup_steps) / self.cycle_len))
             / 2
         )
-        print(lr)
         return lr
 
     def get_lr(self):

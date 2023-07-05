@@ -7,7 +7,7 @@ trainer:
       project: step
       log_model: all
       dir: wandb
-      tags: [test, lr]
+      tags: [test, small]
   enable_checkpointing: true
   callbacks:
     - class_path: ModelCheckpoint
@@ -39,7 +39,7 @@ model:
     weighted_loss: false
     predict_all: false
 data:
-  class_path: FoldSeekDataModule
+  class_path: FoldSeekSmallDataModule
   init_args:
     pre_transforms:
       - class_path: torch_geometric.transforms.Center

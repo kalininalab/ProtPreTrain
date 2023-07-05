@@ -94,6 +94,8 @@ class DenoiseModel(LightningModule):
 
     def training_step(self, batch: Data, idx) -> dict:
         """Shared step for training and validation."""
+        sch = self.lr_schedulers()
+        sch.step()
         if self.global_step == 0:
             self.test_batch = batch.clone()
         batch = self.forward(batch)

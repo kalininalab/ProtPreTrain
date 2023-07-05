@@ -69,6 +69,10 @@ class FoldSeekSmallDataset(FoldSeekDataset):
     def raw_file_names(self):
         return ["e_coli", "e_coli.dbtype", "e_coli.index", "e_coli.lookup", "e_coli.source"]
 
+    def len(self):
+        """Number of graphs in the dataset."""
+        return 8726
+
 
 class DownstreamDataset(InMemoryDataset):
     """Abstract class for downstream datasets."""
