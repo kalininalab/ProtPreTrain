@@ -10,7 +10,7 @@ import wandb
 
 from ..data.parsers import THREE_TO_ONE
 from ..utils import plot_aa_tsne, plot_confmat, plot_node_embeddings
-from .regression import SimpleMLP
+from .downstream import SimpleMLP
 
 
 class DenoiseModel(LightningModule):
@@ -27,11 +27,13 @@ class DenoiseModel(LightningModule):
         attn_dropout: float = 0.1,
         alpha: float = 1.0,
         weighted_loss: bool = False,
+        predict_all: bool = True,
     ):
         super().__init__()
         self.save_hyperparameters()
         self.weighted_loss = weighted_loss
         self.alpha = alpha
+        self.predict_all = predict_all
         self.feat_encode = torch.nn.Embedding(21, hidden_dim)
         self.edge_encode = torch.nn.Linear(3, hidden_dim)
         self.node_encode = torch.nn.Sequential(
@@ -56,7 +58,10 @@ class DenoiseModel(LightningModule):
         batch.x = self.feat_encode(batch.x)
         batch.edge_attr = self.edge_encode(batch.edge_attr)
         batch = self.node_encode(batch)
-        batch.type_pred = self.type_pred(batch.x)
+        if self.predict_all:
+            batch.type_pred = self.type_pred(batch.x)
+        else:
+            batch.type_pred = self.type_pred(batch.x[batch.mask])
         batch.noise_pred = self.noise_pred(batch.x)
         return batch
 
@@ -93,10 +98,14 @@ class DenoiseModel(LightningModule):
             self.test_batch = batch.clone()
         batch = self.forward(batch)
         noise_loss = F.mse_loss(batch.noise_pred, batch.noise)
-        pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x)
+        if self.predict_all:
+            pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x)
+            self.confmat.update(batch.type_pred, batch.orig_x)
+        else:
+            pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x[batch.mask])
+            self.confmat.update(batch.type_pred, batch.orig_x[batch.mask])
         loss = noise_loss + self.alpha * pred_loss
         # acc = accuracy(batch.type_pred, batch.orig_x, task="multiclass")
-        self.confmat.update(batch.type_pred, batch.orig_x)
         self.log("train/loss", loss, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
         if self.global_step % 100 == 0:
             wandb.log(

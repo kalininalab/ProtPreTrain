@@ -1,2 +1,2 @@
 from .denoise import DenoiseModel
-from .regression import RegressionESMModel, RegressionModel
+from .downstream import ClassificationESMModel, RegressionESMModel, RegressionModel

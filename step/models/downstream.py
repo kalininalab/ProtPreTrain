@@ -54,12 +54,12 @@ class RegressionBaseModel(BaseModel):
 
     def shared_step(self, batch: Data, step_name: str) -> dict:
         """Shared step for training and validation."""
-        y = self.forward(batch).squeeze(-1)
-        pred_y = batch.y
-        loss = F.huber_loss(pred_y, y, delta=0.5)
-        mae = metrics.mean_absolute_error(pred_y, y)
-        r2 = metrics.r2_score(pred_y, y)
-        corrcoef = metrics.spearman_corrcoef(pred_y, y)
+        y_hat = self.forward(batch).squeeze(-1)
+        y = batch.y
+        loss = F.huber_loss(y_hat, y, delta=0.5)
+        mae = metrics.mean_absolute_error(y_hat, y)
+        r2 = metrics.r2_score(y_hat, y)
+        corrcoef = metrics.spearman_corrcoef(y_hat, y)
         self.log(f"{step_name}/loss", loss, batch_size=batch.num_graphs)
         self.log(f"{step_name}/mae", mae, batch_size=batch.num_graphs)
         self.log(f"{step_name}/r2", r2, batch_size=batch.num_graphs)
@@ -70,6 +70,32 @@ class RegressionBaseModel(BaseModel):
             r2=r2,
             corrcoef=corrcoef,
         )
+
+
+class ClassificationBaseModel(BaseModel):
+    """Base for regression, only defines shared steps"""
+
+    def shared_step(self, batch: Data, step_name: str) -> dict:
+        """Shared step for training and validation."""
+        y_hat = self.forward(batch).squeeze(-1)
+        y = (batch.y > 2.5).long()
+        loss = F.binary_cross_entropy_with_logits(y_hat, y.float())
+        acc = metrics.accuracy(y_hat, y, "binary")
+        auc = metrics.auroc(y_hat, y, "binary")
+        mcc = metrics.matthews_corrcoef(y_hat, y, "binary")
+        self.log(f"{step_name}/loss", loss, batch_size=batch.num_graphs)
+        self.log(f"{step_name}/acc", acc, batch_size=batch.num_graphs)
+        self.log(f"{step_name}/auc", auc, batch_size=batch.num_graphs)
+        self.log(f"{step_name}/mcc", mcc, batch_size=batch.num_graphs)
+        if self.global_step % 100 == 0:
+            wandb.log(
+                {
+                    f"{step_name}/conf_mat": wandb.plot.confusion_matrix(
+                        preds=(y_hat > 0).long().detach().cpu().numpy(), y_true=y.long().detach().cpu().numpy()
+                    )
+                }
+            )
+        return dict(loss=loss, acc=acc, auc=auc, mcc=mcc)
 
 
 class RegressionModel(RegressionBaseModel):
@@ -123,6 +149,23 @@ class RegressionModel(RegressionBaseModel):
 
 
 class RegressionESMModel(RegressionBaseModel):
+    """Uses ESM."""
+
+    def __init__(
+        self,
+        in_dim: int = 1280,
+        hidden_dim: int = 512,
+        dropout: float = 0.2,
+    ):
+        super().__init__()
+        self.linear = SimpleMLP(in_dim, hidden_dim, 1, dropout)
+
+    def forward(self, batch: Data) -> Data:
+        """Return updated batch with noise and node type predictions."""
+        return self.linear(batch.x.view(batch.num_graphs, -1))
+
+
+class ClassificationESMModel(ClassificationBaseModel):
     """Uses ESM."""
 
     def __init__(

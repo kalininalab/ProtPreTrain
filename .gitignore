@@ -10,3 +10,4 @@ wandb/
 data/*
 *.ipynb
 logs/
+artifacts/
