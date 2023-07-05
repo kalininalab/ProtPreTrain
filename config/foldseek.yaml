@@ -24,7 +24,7 @@ trainer:
   max_epochs: 10000
   log_every_n_steps: 100
   accelerator: gpu
-  precision: bf16
+  precision: bf16-mixed
 model:
   class_path: DenoiseModel
   init_args:
@@ -49,14 +49,14 @@ data:
         init_args:
           sigma: 1.0
           plddt_dependent: false
+      - class_path: step.data.MaskType
+        init_args:
+          pick_prob: 0.2
       - class_path: torch_geometric.transforms.RadiusGraph
         init_args:
           r: 7.0
       - class_path: torch_geometric.transforms.ToUndirected
       - class_path: torch_geometric.transforms.Spherical
-      - class_path: step.data.MaskType
-        init_args:
-          pick_prob: 0.2
     num_workers: 10
     shuffle: true
     batch_sampling: true

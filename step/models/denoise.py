@@ -1,6 +1,9 @@
+from typing import Any
+
 import pandas as pd
 import torch
 import torch.nn.functional as F
+import torch_geometric
 from graphgps.layer.gps_layer import GPSLayer
 from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
@@ -52,6 +55,7 @@ class DenoiseModel(LightningModule):
         self.noise_pred = SimpleMLP(hidden_dim, hidden_dim, 3, dropout)
         self.type_pred = SimpleMLP(hidden_dim, hidden_dim, 20, dropout)
         self.confmat = ConfusionMatrix(task="multiclass", num_classes=20, normalize="true")
+        self.aggr = torch_geometric.nn.aggr.MeanAggregation()
 
     def forward(self, batch: Data) -> Data:
         """Return updated batch with noise and node type predictions."""
@@ -126,3 +130,11 @@ class DenoiseModel(LightningModule):
             pred_loss=pred_loss.detach(),
             # acc=acc.detach(),
         )
+
+    def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> Data:
+        """Return updated batch with all the information."""
+        batch.x = self.feat_encode(batch.x)
+        batch.edge_attr = self.edge_encode(batch.edge_attr)
+        batch = self.node_encode(batch)
+        batch.aggr_x = self.aggr(batch.x, batch.batch)
+        return batch

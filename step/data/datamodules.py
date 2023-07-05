@@ -1,11 +1,16 @@
+from pathlib import Path
 from typing import List
 
+import torch
 import torch_geometric.transforms as T
-from pytorch_lightning import LightningDataModule
-from torch_geometric.data import Dataset
+from pytorch_lightning import LightningDataModule, Trainer
+from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import BaseTransform
 
+import wandb
+
+from ..models import DenoiseModel
 from .datasets import (
     FluorescenceDataset,
     FluorescenceESMDataset,
@@ -88,16 +93,18 @@ class DownstreamDataModule(LightningDataModule):
 
     def __init__(
         self,
+        feature_extract_model: str,
         transforms: List[BaseTransform] = [],
         pre_transforms: List[BaseTransform] = [],
         batch_size: int = 128,
-        num_workers: int = 1,
+        num_workers: int = 8,
         shuffle: bool = True,
         batch_sampling: bool = False,
         max_num_nodes: int = 0,
         **kwargs,
     ):
         super().__init__()
+        self.feature_extract_model = feature_extract_model
         self.transforms = transforms
         self.pre_transforms = pre_transforms
         self.batch_size = batch_size
@@ -127,6 +134,14 @@ class DownstreamDataModule(LightningDataModule):
         """Test dataloader."""
         return self._get_dataloader(self.test)
 
+    def load_pretrained_model(self):
+        """Load the pretrained model from wandb."""
+        artifact = wandb.run.use_artifact(self.feature_extract_model, type="model")
+        artifact_dir = artifact.download()
+        model = DenoiseModel.load_from_checkpoint(Path(artifact_dir) / "model.ckpt")
+        model.eval()
+        return model
+
     def setup(self, stage: str = None):
         """Load the individual datasets."""
         pre_transform = T.Compose(self.pre_transforms)
@@ -146,6 +161,22 @@ class DownstreamDataModule(LightningDataModule):
             pre_transform=pre_transform,
             **self.kwargs,
         )
+        trainer = Trainer(callbacks=[], logger=False, accelerator="gpu", precision="bf16-mixed")
+        model = self.load_pretrained_model()
+        for split in ["train", "val", "test"]:
+            dl = getattr(self, f"{split}_dataloader")
+            result = trainer.predict(model, dl())
+            data_list = []
+            for batch in result:
+                for i in range(len(batch)):
+                    data = Data(x=batch.x[i], y=batch.y[i])
+                    data_list.append(data)
+            if split == "train":
+                self.train = data_list
+            elif split == "val":
+                self.val = data_list
+            elif split == "test":
+                self.test = data_list
 
     def _dl_kwargs(self, shuffle: bool = False):
         return dict(
