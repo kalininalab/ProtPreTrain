@@ -11,14 +11,7 @@ from torch_geometric.transforms import BaseTransform
 import wandb
 
 from ..models import DenoiseModel
-from .datasets import (
-    FluorescenceDataset,
-    FluorescenceESMDataset,
-    FoldSeekDataset,
-    FoldSeekSmallDataset,
-    StabilityDataset,
-    StabilityESMDataset,
-)
+from .datasets import FluorescenceDataset, FoldSeekDataset, FoldSeekSmallDataset, StabilityDataset
 from .samplers import DynamicBatchSampler
 
 
@@ -146,27 +139,33 @@ class DownstreamDataModule(LightningDataModule):
         """Load the individual datasets."""
         pre_transform = T.Compose(self.pre_transforms)
         transform = T.Compose(self.transforms)
-        self.train = self.dataset_class(
-            "train",
-            transform=transform,
-            pre_transform=pre_transform,
-            **self.kwargs,
-        )
-        self.val = self.dataset_class(
-            "val",
-            transform=transform,
-            pre_transform=pre_transform,
-            **self.kwargs,
-        )
-        self.test = self.dataset_class(
-            "test",
-            transform=transform,
-            pre_transform=pre_transform,
-            **self.kwargs,
-        )
+        splits = []
+        if stage == "fit" or stage is None:
+            splits.append("train")
+            splits.append("val")
+            self.train = self.dataset_class(
+                "train",
+                transform=transform,
+                pre_transform=pre_transform,
+                **self.kwargs,
+            )
+            self.val = self.dataset_class(
+                "val",
+                transform=transform,
+                pre_transform=pre_transform,
+                **self.kwargs,
+            )
+        if stage == "test" or stage is None:
+            splits.append("test")
+            self.test = self.dataset_class(
+                "test",
+                transform=transform,
+                pre_transform=pre_transform,
+                **self.kwargs,
+            )
         trainer = Trainer(callbacks=[], logger=False, accelerator="gpu", precision="bf16-mixed")
         model = self.load_pretrained_model()
-        for split in ["train", "val", "test"]:
+        for split in splits:
             dl = self._get_dataloader(getattr(self, split))
             result = trainer.predict(model, dl)
             data_list = []

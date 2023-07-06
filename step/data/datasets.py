@@ -1,7 +1,7 @@
 import os
 import shutil
 from pathlib import Path
-from typing import Callable
+from typing import Callable, List
 
 import foldcomp
 import pandas as pd
@@ -75,7 +75,7 @@ class FoldSeekSmallDataset(FoldSeekDataset):
 
 
 class DownstreamDataset(InMemoryDataset):
-    """Abstract class for downstream datasets."""
+    """Abstract class for downstream datasets. self._prepare_data should be implemented."""
 
     splits = {"train": 0, "val": 1, "test": 2}
     root = None
@@ -89,33 +89,8 @@ class DownstreamDataset(InMemoryDataset):
         """Files that have to be present in the processed directory."""
         return ["train.pt", "valid.pt", "test.pt"]
 
-
-class FluorescenceDataset(DownstreamDataset):
-    """Predict fluorescence for GFP mutants."""
-
-    url = "http://s3.amazonaws.com/songlabdata/proteindata/data_raw_pytorch/fluorescence.tar.gz"
-    struct_url = "https://alphafold.ebi.ac.uk/files/AF-P42212-F1-model_v4.pdb"
-    root = "data/fluorescence"
-
-    def download(self):
-        """Download the dataset."""
-        raw_dir = Path(self.raw_dir)
-        download_url(self.url, self.raw_dir)
-        download_url(self.struct_url, self.raw_dir)
-        extract_tar(raw_dir / "fluorescence.tar.gz", self.raw_dir, mode="r")
-        for i in (raw_dir / "fluorescence").glob("*.json"):
-            shutil.move(i, self.raw_dir)
-        (raw_dir / "fluorescence").rmdir()
-
-    @property
-    def raw_file_names(self):
-        """Files that have to be present in the raw directory."""
-        return [
-            "fluorescence_train.json",
-            "fluorescence_valid.json",
-            "fluorescence_test.json",
-            "AF-P42212-F1-model_v4.pdb",
-        ]
+    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
+        raise NotImplementedError
 
     def process(self):
         """Do the full run for the dataset."""
@@ -128,21 +103,7 @@ class FluorescenceDataset(DownstreamDataset):
             elif split == "test":
                 idx = 2
             df = pd.read_json(self.raw_paths[idx])
-            df["primary"] = "M" + df["primary"]
-            ps = ProtStructure(self.raw_paths[3])
-            orig_sequence = ps.get_sequence()
-            orig_graph = Data(**ps.get_graph())
-            df["edits"] = df.apply(lambda row: compute_edits(orig_sequence, row["primary"]), axis=1)
-            df["graph"] = df.apply(lambda row: apply_edits(orig_graph, row["edits"]), axis=1)
-            data_list = [
-                Data(
-                    y=row["log_fluorescence"][0],
-                    num_mutations=row["num_mutations"],
-                    id=row["id"],
-                    **row["graph"].to_dict(),
-                )
-                for _, row in df.iterrows()
-            ]
+            data_list = self._prepare_data(df)
 
             if self.pre_filter is not None:
                 data_list = [data for data in data_list if self.pre_filter(data)]
@@ -152,6 +113,42 @@ class FluorescenceDataset(DownstreamDataset):
 
             data, slices = self.collate(data_list)
             torch.save((data, slices), self.processed_paths[idx])
+
+
+class FluorescenceDataset(DownstreamDataset):
+    """Predict fluorescence for GFP mutants."""
+
+    url = "http://s3.amazonaws.com/songlabdata/proteindata/data_raw_pytorch/fluorescence.tar.gz"
+    struct_url = "https://alphafold.ebi.ac.uk/files/AF-P42212-F1-model_v4.pdb"
+    root = "data/fluorescence"
+
+    @property
+    def raw_file_names(self):
+        """Files that have to be present in the raw directory."""
+        return [
+            "fluorescence_train.json",
+            "fluorescence_valid.json",
+            "fluorescence_test.json",
+            "AF-P42212-F1-model_v4.pdb",
+        ]
+
+    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
+        df["primary"] = "M" + df["primary"]
+        ps = ProtStructure(self.raw_paths[3])
+        orig_sequence = ps.get_sequence()
+        orig_graph = Data(**ps.get_graph())
+        df["edits"] = df.apply(lambda row: compute_edits(orig_sequence, row["primary"]), axis=1)
+        df["graph"] = df.apply(lambda row: apply_edits(orig_graph, row["edits"]), axis=1)
+        data_list = [
+            Data(
+                y=row["log_fluorescence"][0],
+                num_mutations=row["num_mutations"],
+                id=row["id"],
+                **row["graph"].to_dict(),
+            )
+            for _, row in df.iterrows()
+        ]
+        return data_list
 
 
 class StabilityDataset(DownstreamDataset):
@@ -172,33 +169,66 @@ class StabilityDataset(DownstreamDataset):
             "structures_db.dbtype",
         ]
 
-    def process(self):
-        """Do the full run for the dataset."""
-        for split in ["train", "valid", "test"]:
-            print(split)
-            data_list = []
-            if split == "train":
-                idx = 0
-            elif split == "valid":
-                idx = 1
-            elif split == "test":
-                idx = 2
-            df = pd.read_json(self.raw_paths[idx]).drop_duplicates(subset=["id"])
-            ids = df["id"].tolist()
-            df.set_index("id", inplace=True)
+    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
+        data_list = []
+        ids = df["id"].tolist()
+        df.set_index("id", inplace=True)
 
-            with foldcomp.open(self.raw_paths[3], ids=ids) as db:
-                for name, pdb in tqdm(db):
-                    struct = ProtStructure(pdb)
-                    graph = Data(**struct.get_graph())
-                    graph["y"] = df.loc[name, "stability_score"][0]
-                    data_list.append(graph)
+        with foldcomp.open(self.raw_paths[3], ids=ids) as db:
+            for name, pdb in tqdm(db):
+                struct = ProtStructure(pdb)
+                graph = Data(**struct.get_graph())
+                graph["y"] = df.loc[name, "stability_score"][0]
+                data_list.append(graph)
+        return data_list
 
-            if self.pre_filter is not None:
-                data_list = [data for data in data_list if self.pre_filter(data)]
 
-            if self.pre_transform is not None:
-                data_list = [self.pre_transform(data) for data in data_list]
+class FluorescenceSequenceDataset(DownstreamDataset):
+    root = "data/fluorescence_seq"
 
-            data, slices = self.collate(data_list)
-            torch.save((data, slices), self.processed_paths[idx])
+    @property
+    def raw_file_names(self):
+        """Files that have to be present in the raw directory."""
+        return [
+            "fluorescence_train.json",
+            "fluorescence_valid.json",
+            "fluorescence_test.json",
+        ]
+
+    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
+        data_list = [
+            Data(
+                seq=row["primary"],
+                y=row["log_fluorescence"][0],
+                num_mutations=row["num_mutations"],
+                id=row["id"],
+            )
+            for _, row in df.iterrows()
+        ]
+        return data_list
+
+
+class StabilitySequenceDataset(DownstreamDataset):
+    """Predict stability for various proteins."""
+
+    root = "data/stability_seq"
+
+    @property
+    def raw_file_names(self):
+        """Files that have to be present in the raw directory."""
+        return [
+            "stability_train.json",
+            "stability_valid.json",
+            "stability_test.json",
+        ]
+
+    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
+        data_list = [
+            Data(
+                seq=row["primary"],
+                y=row["stability_score"][0],
+                id=row["id"],
+            )
+            for _, row in df.iterrows()
+        ]
+        return data_list

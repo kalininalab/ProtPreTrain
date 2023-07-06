@@ -30,16 +30,16 @@ model:
   init_args:
     local_module: GAT
     global_module: Performer
-    hidden_dim: 512
-    num_layers: 16
-    num_heads: 8
+    hidden_dim: 128
+    num_layers: 8
+    num_heads: 4
     dropout: 0.1
     attn_dropout: 0.1
     alpha: 1.0
     weighted_loss: false
     predict_all: false
 data:
-  class_path: FoldSeekSmallDataModule
+  class_path: FoldSeekDataModule
   init_args:
     pre_transforms:
       - class_path: torch_geometric.transforms.Center
@@ -60,7 +60,7 @@ data:
     num_workers: 10
     shuffle: true
     batch_sampling: true
-    max_num_nodes: 1600
+    max_num_nodes: 15000
 optimizer:
   class_path: torch.optim.Adam
   init_args:
@@ -68,8 +68,8 @@ optimizer:
 lr_scheduler:
   class_path: step.utils.WarmUpCosineLR
   init_args:
-    warmup_steps: 1000
+    warmup_steps: 10000
     start_lr: 1.0e-5
     max_lr: 1.0e-4
     min_lr: 1.0e-7
-    cycle_len: 10000
+    cycle_len: 100000

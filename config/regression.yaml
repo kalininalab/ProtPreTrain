@@ -3,10 +3,9 @@ trainer:
   logger:
     class_path: WandbLogger
     init_args:
-      log_model: all
+      log_model: true
       project: fluorescence
       dir: wandb
-      tags: [test]
   callbacks:
     - class_path: ModelCheckpoint
       init_args:
@@ -21,12 +20,9 @@ trainer:
         monitor: val/loss
         patience: 50
         mode: min
-  gradient_clip_val: 0.0
   accelerator: gpu
   devices: -1
-  max_epochs: 100
-  num_sanity_val_steps: 20
-  fast_dev_run: false
+  max_epochs: 10000
 model:
   class_path: RegressionModel
   init_args:
