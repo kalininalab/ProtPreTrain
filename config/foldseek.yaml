@@ -7,7 +7,7 @@ trainer:
       project: step
       log_model: all
       dir: wandb
-      tags: [test, small]
+      tags: [big]
   enable_checkpointing: true
   callbacks:
     - class_path: ModelCheckpoint
@@ -30,9 +30,9 @@ model:
   init_args:
     local_module: GAT
     global_module: Performer
-    hidden_dim: 128
-    num_layers: 8
-    num_heads: 4
+    hidden_dim: 768
+    num_layers: 16
+    num_heads: 8
     dropout: 0.1
     attn_dropout: 0.1
     alpha: 1.0
@@ -60,7 +60,7 @@ data:
     num_workers: 10
     shuffle: true
     batch_sampling: true
-    max_num_nodes: 15000
+    max_num_nodes: 1024
 optimizer:
   class_path: torch.optim.Adam
   init_args:

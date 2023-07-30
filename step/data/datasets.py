@@ -1,13 +1,13 @@
 import os
-import shutil
-from pathlib import Path
 from typing import Callable, List
 
 import foldcomp
 import pandas as pd
 import torch
-from torch_geometric.data import Data, Dataset, InMemoryDataset, download_url, extract_tar
+from torch_geometric.data import Data, Dataset, InMemoryDataset, extract_tar
 from tqdm import tqdm
+
+import wandb
 
 from .parsers import ProtStructure
 from .utils import apply_edits, compute_edits
@@ -79,10 +79,16 @@ class DownstreamDataset(InMemoryDataset):
 
     splits = {"train": 0, "val": 1, "test": 2}
     root = None
+    wandb_name = None
 
     def __init__(self, split: str, transform=None, pre_transform=None, pre_filter=None):
         super().__init__(self.root, transform, pre_transform, pre_filter)
         self.data, self.slices = torch.load(self.processed_paths[self.splits[split]])
+
+    def download(self):
+        artifact = wandb.use_artifact(self.wandb_name, type="dataset")
+        artifact_dir = artifact.download(self.raw_dir)
+        extract_tar(Path(artifact_dir) / "dataset.tar.gz", self.raw_dir, verbose=True)
 
     @property
     def processed_file_names(self):
@@ -118,9 +124,8 @@ class DownstreamDataset(InMemoryDataset):
 class FluorescenceDataset(DownstreamDataset):
     """Predict fluorescence for GFP mutants."""
 
-    url = "http://s3.amazonaws.com/songlabdata/proteindata/data_raw_pytorch/fluorescence.tar.gz"
-    struct_url = "https://alphafold.ebi.ac.uk/files/AF-P42212-F1-model_v4.pdb"
     root = "data/fluorescence"
+    wandb_url = "ilsenatorov/fluorescence/fluorescence:latest"
 
     @property
     def raw_file_names(self):
@@ -155,6 +160,7 @@ class StabilityDataset(DownstreamDataset):
     """Predict stability for various proteins."""
 
     root = "data/stability"
+    wandb_name = "ilsenatorov/stability/stability:latest"
 
     @property
     def raw_file_names(self):
@@ -183,7 +189,7 @@ class StabilityDataset(DownstreamDataset):
         return data_list
 
 
-class FluorescenceSequenceDataset(DownstreamDataset):
+class FluorescenceSequenceDataset(FluorescenceDataset):
     root = "data/fluorescence_seq"
 
     @property
@@ -208,7 +214,7 @@ class FluorescenceSequenceDataset(DownstreamDataset):
         return data_list
 
 
-class StabilitySequenceDataset(DownstreamDataset):
+class StabilitySequenceDataset(StabilityDataset):
     """Predict stability for various proteins."""
 
     root = "data/stability_seq"

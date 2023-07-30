@@ -1,0 +1,19 @@
+wandb
+umap-learn
+torch-geometric
+torch-scatter
+torch-sparse
+torch-cluster
+pytorch-lightning[all]
+yacs
+performer-pytorch
+torchmetrics
+ogb
+tensorboardX
+plotly
+pandas
+numpy
+scikit-learn
+foldcomp
+levenshtein
+graphgps @ git+https://github.com/rampasek/GraphGPS@28015707cbab7f8ad72bed0ee872d068ea59c94b
