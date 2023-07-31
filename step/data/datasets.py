@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Callable, List
 
 import foldcomp
@@ -88,7 +89,7 @@ class DownstreamDataset(InMemoryDataset):
     def download(self):
         artifact = wandb.use_artifact(self.wandb_name, type="dataset")
         artifact_dir = artifact.download(self.raw_dir)
-        extract_tar(Path(artifact_dir) / "dataset.tar.gz", self.raw_dir, verbose=True)
+        extract_tar(Path(artifact_dir) / "dataset.tar.gz", self.raw_dir)
 
     @property
     def processed_file_names(self):
@@ -125,7 +126,7 @@ class FluorescenceDataset(DownstreamDataset):
     """Predict fluorescence for GFP mutants."""
 
     root = "data/fluorescence"
-    wandb_url = "ilsenatorov/fluorescence/fluorescence:latest"
+    wandb_name = "ilsenatorov/fluorescence/fluorescence:latest"
 
     @property
     def raw_file_names(self):
@@ -138,7 +139,7 @@ class FluorescenceDataset(DownstreamDataset):
         ]
 
     def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
-        df["primary"] = "M" + df["primary"]
+        # df["primary"] = "M" + df["primary"]
         ps = ProtStructure(self.raw_paths[3])
         orig_sequence = ps.get_sequence()
         orig_graph = Data(**ps.get_graph())
