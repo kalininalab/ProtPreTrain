@@ -16,4 +16,6 @@ numpy
 scikit-learn
 foldcomp
 levenshtein
+ankh
+transformers
 graphgps @ git+https://github.com/rampasek/GraphGPS@28015707cbab7f8ad72bed0ee872d068ea59c94b

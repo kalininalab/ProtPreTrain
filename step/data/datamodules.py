@@ -165,6 +165,10 @@ class DownstreamDataModule(LightningDataModule):
             self._embed_with_wandb(splits)
         elif self.feature_extract_model_source == "huggingface":
             self._embed_with_huggingface(splits)
+        elif self.feature_extract_model_source == "ankh":
+            self._embed_with_ankh(splits)
+        else:
+            raise ValueError(f"Unknown feature extract model source {self.feature_extract_model_source}")
 
     def _dl_kwargs(self, shuffle: bool = False):
         return dict(
@@ -209,21 +213,24 @@ class DownstreamDataModule(LightningDataModule):
 
     def _embed_with_ankh(self, splits: List[str]) -> List[Data]:
         model, tokenizer = self.load_pretrained_model()
+        model.to("cuda")
         for split in splits:
             print(split)
             ds = getattr(self, split)
             data_list = []
             for i in tqdm(ds):
                 outputs = tokenizer.batch_encode_plus(
-                    [i.seq],
+                    [list(i.seq)],
                     add_special_tokens=True,
                     padding=True,
                     is_split_into_words=True,
                     return_tensors="pt",
                 )
                 with torch.no_grad():
-                    embeddings = model(input_ids=outputs["input_ids"], attention_mask=outputs["attention_mask"])
-                x = embeddings[0].squeeze(0).mean(dim=0)
+                    embeddings = model(
+                        input_ids=outputs["input_ids"].to("cuda"), attention_mask=outputs["attention_mask"].to("cuda")
+                    )
+                x = embeddings["last_hidden_state"][0].squeeze(0).mean(dim=0)
                 y = i.y
                 data = Data(x=x, y=y)
                 data_list.append(data)
