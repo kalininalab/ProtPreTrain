@@ -1,3 +1,5 @@
+from typing import Any
+
 import torch
 import torch.nn.functional as F
 import torchmetrics.functional as metrics
@@ -44,6 +46,19 @@ class BaseModel(LightningModule):
     def test_step(self, batch: Data, batch_idx: int) -> dict:
         """Test step."""
         return self.shared_step(batch, "test")
+
+    def configure_optimizers(self) -> Any:
+        """Configure optimizers."""
+        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=0.1,
+            patience=20,
+            min_lr=1e-7,
+            verbose=True,
+        )
+        return {"optimizer": optimizer, "scheduler": scheduler, "monitor": "val/loss"}
 
 
 class RegressionModel(BaseModel):

@@ -150,6 +150,7 @@ class FluorescenceDataset(DownstreamDataset):
                 y=row["log_fluorescence"][0],
                 num_mutations=row["num_mutations"],
                 id=row["id"],
+                seq=row["primary"],
                 **row["graph"].to_dict(),
             )
             for _, row in df.iterrows()
@@ -186,56 +187,6 @@ class StabilityDataset(DownstreamDataset):
                 struct = ProtStructure(pdb)
                 graph = Data(**struct.get_graph())
                 graph["y"] = df.loc[name, "stability_score"][0]
+                graph["seq"] = struct.get_sequence()
                 data_list.append(graph)
-        return data_list
-
-
-class FluorescenceSequenceDataset(FluorescenceDataset):
-    root = "data/fluorescence_seq"
-
-    @property
-    def raw_file_names(self):
-        """Files that have to be present in the raw directory."""
-        return [
-            "fluorescence_train.json",
-            "fluorescence_valid.json",
-            "fluorescence_test.json",
-        ]
-
-    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
-        data_list = [
-            Data(
-                seq=row["primary"],
-                y=row["log_fluorescence"][0],
-                num_mutations=row["num_mutations"],
-                id=row["id"],
-            )
-            for _, row in df.iterrows()
-        ]
-        return data_list
-
-
-class StabilitySequenceDataset(StabilityDataset):
-    """Predict stability for various proteins."""
-
-    root = "data/stability_seq"
-
-    @property
-    def raw_file_names(self):
-        """Files that have to be present in the raw directory."""
-        return [
-            "stability_train.json",
-            "stability_valid.json",
-            "stability_test.json",
-        ]
-
-    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
-        data_list = [
-            Data(
-                seq=row["primary"],
-                y=row["stability_score"][0],
-                id=row["id"],
-            )
-            for _, row in df.iterrows()
-        ]
         return data_list
