@@ -230,7 +230,7 @@ class DownstreamDataModule(LightningDataModule):
                     embeddings = model(
                         input_ids=outputs["input_ids"].to("cuda"), attention_mask=outputs["attention_mask"].to("cuda")
                     )
-                x = embeddings["last_hidden_state"][0].squeeze(0).mean(dim=0)
+                x = embeddings["last_hidden_state"][0].squeeze(0).mean(dim=0).cpu()
                 y = i.y
                 data = Data(x=x, y=y)
                 data_list.append(data)

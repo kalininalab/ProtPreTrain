@@ -126,7 +126,7 @@ class FluorescenceDataset(DownstreamDataset):
     """Predict fluorescence for GFP mutants."""
 
     root = "data/fluorescence"
-    wandb_name = "ilsenatorov/fluorescence/fluorescence:latest"
+    wandb_name = "ilsenatorov/fluorescence/fluorescence_dataset:latest"
 
     @property
     def raw_file_names(self):
@@ -162,7 +162,7 @@ class StabilityDataset(DownstreamDataset):
     """Predict stability for various proteins."""
 
     root = "data/stability"
-    wandb_name = "ilsenatorov/stability/stability:latest"
+    wandb_name = "ilsenatorov/stability/stability_dataset:latest"
 
     @property
     def raw_file_names(self):
@@ -187,6 +187,8 @@ class StabilityDataset(DownstreamDataset):
                 struct = ProtStructure(pdb)
                 graph = Data(**struct.get_graph())
                 graph["y"] = df.loc[name, "stability_score"][0]
+                if isinstance(graph["y"], list):
+                    graph["y"] = graph["y"][0]
                 graph["seq"] = struct.get_sequence()
                 data_list.append(graph)
         return data_list

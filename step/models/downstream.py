@@ -58,7 +58,7 @@ class BaseModel(LightningModule):
             min_lr=1e-7,
             verbose=True,
         )
-        return {"optimizer": optimizer, "scheduler": scheduler, "monitor": "val/loss"}
+        return [optimizer], [{"scheduler": scheduler, "monitor": "val/loss"}]
 
 
 class RegressionModel(BaseModel):
