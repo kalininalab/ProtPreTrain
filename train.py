@@ -3,7 +3,7 @@ import warnings
 import torch
 from pytorch_lightning.cli import LightningCLI, ReduceLROnPlateau
 
-from step.data import FluorescenceDataModule, FoldSeekDataModule, FoldSeekSmallDataModule, StabilityDataModule
+from step.data import FluorescenceDataModule, FoldSeekDataModule, StabilityDataModule
 from step.models import DenoiseModel, RegressionModel
 from step.utils.cli import namespace_to_dict
 
