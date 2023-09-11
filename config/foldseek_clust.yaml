@@ -1,0 +1,76 @@
+seed_everything: 42
+trainer:
+  logger:
+    class_path: WandbLogger
+    init_args:
+      name: foldseek
+      project: step
+      log_model: all
+      dir: wandb
+      tags: [big]
+  enable_checkpointing: true
+  callbacks:
+    - class_path: ModelCheckpoint
+      init_args:
+        monitor: train/loss
+        mode: min
+        every_n_train_steps: 1000
+        dirpath: checkpoints
+    - class_path: RichProgressBar
+    - class_path: RichModelSummary
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: step
+  max_epochs: 10000
+  log_every_n_steps: 100
+  accelerator: gpu
+  strategy: ddp
+  precision: bf16-mixed
+model:
+  class_path: DenoiseModel
+  init_args:
+    local_module: GAT
+    global_module: Performer
+    hidden_dim: 768
+    num_layers: 16
+    num_heads: 8
+    dropout: 0.1
+    attn_dropout: 0.1
+    alpha: 1.0
+    weighted_loss: false
+    predict_all: false
+data:
+  class_path: FoldSeekDataModule
+  init_args:
+    pre_transforms:
+      - class_path: torch_geometric.transforms.Center
+      - class_path: torch_geometric.transforms.NormalizeRotation
+    transforms:
+      - class_path: step.data.PosNoise
+        init_args:
+          sigma: 1.0
+          plddt_dependent: false
+      - class_path: step.data.MaskType
+        init_args:
+          pick_prob: 0.2
+      - class_path: torch_geometric.transforms.RadiusGraph
+        init_args:
+          r: 7.0
+      - class_path: torch_geometric.transforms.ToUndirected
+      - class_path: torch_geometric.transforms.Spherical
+    num_workers: 10
+    shuffle: true
+    batch_sampling: true
+    max_num_nodes: 1024
+optimizer:
+  class_path: torch.optim.Adam
+  init_args:
+    lr: 1.0e-4
+lr_scheduler:
+  class_path: step.utils.WarmUpCosineLR
+  init_args:
+    warmup_steps: 10000
+    start_lr: 1.0e-5
+    max_lr: 1.0e-4
+    min_lr: 1.0e-7
+    cycle_len: 100000
