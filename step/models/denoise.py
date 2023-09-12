@@ -13,7 +13,7 @@ import wandb
 
 from ..data.parsers import THREE_TO_ONE
 from ..utils import plot_aa_tsne, plot_confmat, plot_node_embeddings
-from .downstream import LazySimpleMLP
+from .downstream import LazySimpleMLP, SimpleMLP
 
 
 class DenoiseModel(LightningModule):
@@ -52,8 +52,8 @@ class DenoiseModel(LightningModule):
                 for _ in range(num_layers)
             ]
         )
-        self.noise_pred = LazySimpleMLP(hidden_dim, 3, dropout)
-        self.type_pred = LazySimpleMLP(hidden_dim, 20, dropout)
+        self.noise_pred = SimpleMLP(hidden_dim, hidden_dim, 3, dropout)
+        self.type_pred = SimpleMLP(hidden_dim, hidden_dim, 20, dropout)
         self.confmat = ConfusionMatrix(task="multiclass", num_classes=20, normalize="true")
         self.aggr = torch_geometric.nn.aggr.MeanAggregation()
 
