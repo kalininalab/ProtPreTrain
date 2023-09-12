@@ -6,11 +6,11 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=4
+#SBATCH --gres=gpu:0
+#SBATCH --cpus-per-task=1
 #SBATCH --mem=0
-#SBATCH --time=0-04:00:00
-#SBATCH --signal=SIGUSR1@90
+#SBATCH --time=0-20:00:00
+#SBATCH --output=test.log
 
 
 export NCCL_DEBUG=INFO
@@ -18,6 +18,6 @@ export PYTHONFAULTHANDLER=1
 export NCCL_IB_DISABLE=1
 export CUDA_VISIBLE_DEVICES=0
 
-jutil env activate -p hai_pre_prot
-conda activate protpretrain
-srun python train.py --config config/swissprot_config.yaml --data.root $SCRATCH/data/swissprot
+jutil env activate -p hai_preprost
+conda activate step
+srun -A hai_preprost python train.py --config config/foldseek_clust.yaml
