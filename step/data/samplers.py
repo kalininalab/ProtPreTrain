@@ -12,6 +12,7 @@ class DynamicBatchSampler(Sampler):
         self.max_num = max_num
         self.shuffle = shuffle
         self.batch_size = max_num
+        self.drop_last = False
 
     def __iter__(self) -> Iterable[List[int]]:
         if self.shuffle:
