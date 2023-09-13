@@ -113,17 +113,11 @@ class DenoiseModel(LightningModule):
         loss = noise_loss + self.alpha * pred_loss
         # acc = accuracy(batch.type_pred, batch.orig_x, task="multiclass")
         self.log("train/loss", loss, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
-        if self.global_step % 100 == 0:
-            wandb.log(
-                {
-                    "train/loss": loss,
-                    # f"{step}/acc": acc,
-                    "train/noise_loss": noise_loss,
-                    "train/pred_loss": pred_loss,
-                }
-            )
-        if self.global_step % 1000 == 0:
-            self.log_figs("train")
+        # self.log(f"{step}/acc", acc, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
+        self.log("train/noise_loss", noise_loss, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
+        self.log("train/pred_loss", pred_loss, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
+        # if self.global_step % 1000 == 0:
+        #     self.log_figs("train")
         return dict(
             loss=loss,
             noise_loss=noise_loss.detach(),
