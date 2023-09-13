@@ -22,8 +22,10 @@ trainer:
       init_args:
         logging_interval: step
   max_epochs: 10000
-  log_every_n_steps: 100
+  log_every_n_steps: 50
   accelerator: gpu
+  devices: 4
+  sync_batchnorm: false
   strategy: ddp
   precision: bf16-mixed
 model:
@@ -31,11 +33,11 @@ model:
   init_args:
     local_module: GAT
     global_module: Performer
-    hidden_dim: 768
-    num_layers: 16
-    num_heads: 8
-    dropout: 0.1
-    attn_dropout: 0.1
+    hidden_dim: 1280
+    num_layers: 32
+    num_heads: 16
+    dropout: 0.05
+    attn_dropout: 0.05
     alpha: 1.0
     weighted_loss: false
     predict_all: false
@@ -58,10 +60,10 @@ data:
           r: 7.0
       - class_path: torch_geometric.transforms.ToUndirected
       - class_path: torch_geometric.transforms.Spherical
-    num_workers: 10
+    num_workers: 16
     shuffle: true
-    batch_sampling: true
-    max_num_nodes: 1024
+    batch_sampling: false
+    batch_size: 4
 optimizer:
   class_path: torch.optim.Adam
   init_args:

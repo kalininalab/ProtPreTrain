@@ -8,10 +8,8 @@ from step.data import FluorescenceDataModule, FoldSeekDataModule, StabilityDataM
 from step.models import DenoiseModel, RegressionModel
 from step.utils.cli import namespace_to_dict
 
-# Ignore all deprecation warnings
-warnings.filterwarnings("ignore")
 torch.set_float32_matmul_precision("medium")
-wandb.init(settings=wandb.Settings(start_method="fork"), project="step", name="test", mode="offline")
+torch.multiprocessing.set_sharing_strategy("file_system")
 
 cli = LightningCLI(
     run=False,
@@ -21,6 +19,9 @@ cli = LightningCLI(
 model = cli.model
 datamodule = cli.datamodule
 datamodule.setup()
-cli.trainer.logger.experiment.config.update(namespace_to_dict(cli.config))
+try:
+    cli.trainer.logger.experiment.config.update(namespace_to_dict(cli.config))
+except:
+    pass
 cli.trainer.fit(model, datamodule=datamodule)
 cli.trainer.test(model, datamodule=datamodule)
