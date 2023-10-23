@@ -8,6 +8,7 @@ class DynamicBatchSampler(Sampler):
     r"""Sampler that fills up the batch until `max_num` nodes"""
 
     def __init__(self, dataset: Dataset, max_num: int, shuffle: bool = True):
+        super().__init__()
         self.dataset = dataset
         self.max_num = max_num
         self.shuffle = shuffle

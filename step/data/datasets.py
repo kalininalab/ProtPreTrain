@@ -1,4 +1,5 @@
 import os
+from abc import ABC
 from pathlib import Path
 from typing import Callable, List
 
@@ -14,7 +15,7 @@ from .parsers import ProtStructure
 from .utils import apply_edits, compute_edits
 
 
-class FoldSeekDataset(Dataset):
+class FoldSeekDataset(Dataset, ABC):
     """
     Dataset for pre-training.
     """
@@ -63,7 +64,7 @@ class FoldSeekDataset(Dataset):
         return [f"data_{i}.pt" for i in range(0, self.len(), 1000)]
 
 
-class FoldSeekSmallDataset(FoldSeekDataset):
+class FoldSeekSmallDataset(FoldSeekDataset, ABC):
     """For debugging, only E. Coli."""
 
     @property
@@ -75,7 +76,7 @@ class FoldSeekSmallDataset(FoldSeekDataset):
         return 8726
 
 
-class DownstreamDataset(InMemoryDataset):
+class DownstreamDataset(InMemoryDataset, ABC):
     """Abstract class for downstream datasets. self._prepare_data should be implemented."""
 
     splits = {"train": 0, "val": 1, "test": 2}
@@ -89,7 +90,7 @@ class DownstreamDataset(InMemoryDataset):
     def download(self):
         artifact = wandb.use_artifact(self.wandb_name, type="dataset")
         artifact_dir = artifact.download(self.raw_dir)
-        extract_tar(Path(artifact_dir) / "dataset.tar.gz", self.raw_dir)
+        extract_tar(str(Path(artifact_dir) / "dataset.tar.gz"), self.raw_dir)
 
     @property
     def processed_file_names(self):
@@ -102,7 +103,6 @@ class DownstreamDataset(InMemoryDataset):
     def process(self):
         """Do the full run for the dataset."""
         for split in ["train", "valid", "test"]:
-            data_list = []
             if split == "train":
                 idx = 0
             elif split == "valid":
