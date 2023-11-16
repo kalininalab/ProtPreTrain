@@ -23,7 +23,7 @@ parser.add_argument("--batch_size", type=int, default=1024)
 parser.add_argument("--num_workers", type=int, default=0)
 config = parser.parse_args()
 
-logger = pl.loggers.WandbLogger(project=config.dataset, log_model=True, dir="wandb", config=config)
+logger = pl.loggers.WandbLogger(project="STEP_" + config.dataset, log_model=True, dir="wandb", config=config)
 
 config = wandb.config
 print(config)

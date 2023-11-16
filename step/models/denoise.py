@@ -13,7 +13,7 @@ import wandb
 
 from ..data.parsers import THREE_TO_ONE
 from ..utils import plot_aa_tsne, plot_confmat, plot_node_embeddings
-from .downstream import LazySimpleMLP
+from .downstream import LazySimpleMLP, SimpleMLP
 
 
 class DenoiseModel(LightningModule):
@@ -52,8 +52,8 @@ class DenoiseModel(LightningModule):
                 for _ in range(num_layers)
             ]
         )
-        self.noise_pred = LazySimpleMLP(hidden_dim, 3, dropout)
-        self.type_pred = LazySimpleMLP(hidden_dim, 20, dropout)
+        self.noise_pred = SimpleMLP(hidden_dim, hidden_dim, 3, dropout)
+        self.type_pred = SimpleMLP(hidden_dim, hidden_dim, 20, dropout)
         self.confmat = ConfusionMatrix(task="multiclass", num_classes=20, normalize="true")
         self.aggr = torch_geometric.nn.aggr.MeanAggregation()
 
@@ -113,17 +113,11 @@ class DenoiseModel(LightningModule):
         loss = noise_loss + self.alpha * pred_loss
         # acc = accuracy(batch.type_pred, batch.orig_x, task="multiclass")
         self.log("train/loss", loss, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
-        if self.global_step % 100 == 0:
-            wandb.log(
-                {
-                    "train/loss": loss,
-                    # f"{step}/acc": acc,
-                    "train/noise_loss": noise_loss,
-                    "train/pred_loss": pred_loss,
-                }
-            )
-        if self.global_step % 1000 == 0:
-            self.log_figs("train")
+        # self.log(f"{step}/acc", acc, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
+        self.log("train/noise_loss", noise_loss, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
+        self.log("train/pred_loss", pred_loss, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
+        # if self.global_step % 1000 == 0:
+        #     self.log_figs("train")
         return dict(
             loss=loss,
             noise_loss=noise_loss.detach(),

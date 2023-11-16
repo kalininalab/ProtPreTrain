@@ -26,6 +26,23 @@ class LazySimpleMLP(torch.nn.Module):
         return self.main(x)
 
 
+class SimpleMLP(torch.nn.Module):
+    """Simple MLP for output heads."""
+
+    def __init__(self, inp_dim: int, hid_dim: int, out_dim: int, dropout: float = 0.0):
+        super().__init__()
+        self.main = torch.nn.Sequential(
+            torch.nn.Linear(inp_dim, hid_dim),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(hid_dim, out_dim),
+        )
+
+    def forward(self, x):
+        """"""
+        return self.main(x)
+
+
 class BaseModel(LightningModule):
     """Base class for all downstream stuff."""
 

@@ -1,7 +1,6 @@
 import random
 
 import torch
-from torch_geometric.data import Data
 from torch_geometric.transforms import BaseTransform
 
 
@@ -83,7 +82,7 @@ class MaskTypeBERT(BaseTransform):
         batch.orig_x = batch.x[indices].clone()
         batch.mask = indices
         mask_indices = indices[:num_masked_nodes]  # All nodes that are masked
-        mut_indices = indices[num_masked_nodes : num_masked_nodes + num_mutated_nodes]  # All nodes that are mutated
+        mut_indices = indices[num_masked_nodes: num_masked_nodes + num_mutated_nodes]  # All nodes that are mutated
         batch.x[mask_indices] = 20
         batch.x[mut_indices] = torch.randint_like(batch.x[mut_indices], low=0, high=20)
         return batch
@@ -105,3 +104,18 @@ class MaskTypeWeighted(MaskType):
         batch.x[mask] = 20
         batch.mask = mask
         return batch
+
+
+class SequenceOnly(BaseTransform):
+    """Removes all node features except the sequence."""
+
+    def __call__(self, batch) -> torch.Tensor:
+        batch.orig_edge_index = batch.edge_index.clone()
+        tmp = torch.abs(batch.edge_index[0, :] - batch.edge_index[1, :])  # Dims need adjustment in case of batching
+        batch.edge_index = torch.tensor(torch.stack(list(filter(lambda x: x <= 1, tmp))), dtype=torch.long)
+        return batch
+
+
+class StructureOnly(MaskType):
+    def __init__(self):
+        super().__init__(pick_prob=1.0)
