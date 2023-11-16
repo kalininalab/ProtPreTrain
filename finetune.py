@@ -6,15 +6,15 @@ import torch
 import torch_geometric.transforms as T
 
 import wandb
-from step.data import FluorescenceDataModule, StabilityDataModule
-from step.models import RegressionModel
+from step.data import FluorescenceDataModule, HomologyDataModule, StabilityDataModule
+from step.models import ClassificationModel, RegressionModel
 
 # Ignore all deprecation warnings
 warnings.filterwarnings("ignore")
 torch.set_float32_matmul_precision("medium")
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability"])
+parser.add_argument("--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability", "homology"])
 parser.add_argument("--model_source", type=str, choices=["wandb", "huggingface", "ankh"])
 parser.add_argument("--model", type=str)
 parser.add_argument("--hidden_dim", type=int, default=512)
@@ -27,11 +27,14 @@ logger = pl.loggers.WandbLogger(project=config.dataset, log_model=True, dir="wan
 
 config = wandb.config
 print(config)
-
-model = RegressionModel(hidden_dim=config.hidden_dim, dropout=config.dropout)
+if config.dataset == "homology":
+    model = ClassificationModel(hidden_dim=config.hidden_dim, dropout=config.dropout, num_classes=1195)
+else:
+    model = RegressionModel(hidden_dim=config.hidden_dim, dropout=config.dropout)
 data = {
     "fluorescence": FluorescenceDataModule,
     "stability": StabilityDataModule,
+    "homology": HomologyDataModule,
 }[config.dataset](
     feature_extract_model=config.model,
     feature_extract_model_source=config.model_source,

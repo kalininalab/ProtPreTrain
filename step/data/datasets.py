@@ -192,3 +192,37 @@ class StabilityDataset(DownstreamDataset):
                 graph["seq"] = struct.get_sequence()
                 data_list.append(graph)
         return data_list
+
+
+class HomologyDataset(DownstreamDataset):
+    root = "data/homology"
+    wandb_name = "ilsenatorov/stability/homology_dataset:latest"
+
+    @property
+    def raw_file_names(self):
+        """Files that have to be present in the raw directory."""
+        return [
+            "remote_homology_train.json",
+            "remote_homology_valid.json",
+            "remote_homology_test_superfamily_holdout.json",
+            "homology_db",
+            "homology_db.index",
+            "homology_db.lookup",
+            "homology_db.dbtype",
+            "remote_homology_test_family_holdout.json",
+            "remote_homology_test_fold_holdout.json",
+        ]
+
+    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
+        data_list = []
+        ids = df["id"].tolist()
+        df.set_index("id", inplace=True)
+
+        with foldcomp.open(self.raw_paths[3], ids=ids) as db:
+            for name, pdb in tqdm(db):
+                struct = ProtStructure(pdb)
+                graph = Data(**struct.get_graph())
+                graph["y"] = torch.tensor(df.loc[name, "fold_label"], dtype=torch.long)
+                graph["seq"] = struct.get_sequence()
+                data_list.append(graph)
+        return data_list
