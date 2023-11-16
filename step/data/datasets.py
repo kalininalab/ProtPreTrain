@@ -196,7 +196,7 @@ class StabilityDataset(DownstreamDataset):
 
 class HomologyDataset(DownstreamDataset):
     root = "data/homology"
-    wandb_name = "ilsenatorov/stability/homology_dataset:latest"
+    wandb_name = "ilsenatorov/homology/homology_dataset:latest"
 
     @property
     def raw_file_names(self):
@@ -209,8 +209,6 @@ class HomologyDataset(DownstreamDataset):
             "homology_db.index",
             "homology_db.lookup",
             "homology_db.dbtype",
-            "remote_homology_test_family_holdout.json",
-            "remote_homology_test_fold_holdout.json",
         ]
 
     def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
