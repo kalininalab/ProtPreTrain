@@ -1,4 +1,5 @@
 import os
+from abc import ABC
 from pathlib import Path
 from typing import Callable, List
 
@@ -14,7 +15,7 @@ from .parsers import ProtStructure
 from .utils import apply_edits, compute_edits
 
 
-class FoldSeekDataset(Dataset):
+class FoldSeekDataset(Dataset, ABC):
     """
     Dataset for pre-training.
     """
@@ -63,7 +64,7 @@ class FoldSeekDataset(Dataset):
         return [f"data_{i}.pt" for i in range(0, self.len(), 1000)]
 
 
-class FoldSeekSmallDataset(FoldSeekDataset):
+class FoldSeekSmallDataset(FoldSeekDataset, ABC):
     """For debugging, only E. Coli."""
 
     @property
@@ -75,7 +76,7 @@ class FoldSeekSmallDataset(FoldSeekDataset):
         return 8726
 
 
-class DownstreamDataset(InMemoryDataset):
+class DownstreamDataset(InMemoryDataset, ABC):
     """Abstract class for downstream datasets. self._prepare_data should be implemented."""
 
     splits = {"train": 0, "val": 1, "test": 2}
@@ -89,7 +90,7 @@ class DownstreamDataset(InMemoryDataset):
     def download(self):
         artifact = wandb.use_artifact(self.wandb_name, type="dataset")
         artifact_dir = artifact.download(self.raw_dir)
-        extract_tar(Path(artifact_dir) / "dataset.tar.gz", self.raw_dir)
+        extract_tar(str(Path(artifact_dir) / "dataset.tar.gz"), self.raw_dir)
 
     @property
     def processed_file_names(self):
@@ -102,7 +103,6 @@ class DownstreamDataset(InMemoryDataset):
     def process(self):
         """Do the full run for the dataset."""
         for split in ["train", "valid", "test"]:
-            data_list = []
             if split == "train":
                 idx = 0
             elif split == "valid":
@@ -189,6 +189,38 @@ class StabilityDataset(DownstreamDataset):
                 graph["y"] = df.loc[name, "stability_score"][0]
                 if isinstance(graph["y"], list):
                     graph["y"] = graph["y"][0]
+                graph["seq"] = struct.get_sequence()
+                data_list.append(graph)
+        return data_list
+
+
+class HomologyDataset(DownstreamDataset):
+    root = "data/homology"
+    wandb_name = "ilsenatorov/homology/homology_dataset:latest"
+
+    @property
+    def raw_file_names(self):
+        """Files that have to be present in the raw directory."""
+        return [
+            "remote_homology_train.json",
+            "remote_homology_valid.json",
+            "remote_homology_test_superfamily_holdout.json",
+            "homology_db",
+            "homology_db.index",
+            "homology_db.lookup",
+            "homology_db.dbtype",
+        ]
+
+    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
+        data_list = []
+        ids = df["id"].tolist()
+        df.set_index("id", inplace=True)
+
+        with foldcomp.open(self.raw_paths[3], ids=ids) as db:
+            for name, pdb in tqdm(db):
+                struct = ProtStructure(pdb)
+                graph = Data(**struct.get_graph())
+                graph["y"] = torch.tensor(df.loc[name, "fold_label"], dtype=torch.long)
                 graph["seq"] = struct.get_sequence()
                 data_list.append(graph)
         return data_list

@@ -1,7 +1,7 @@
 import gzip
 import os
 from pathlib import Path
-from typing import List, Union
+from typing import List, Union, Optional
 
 import torch
 
@@ -92,7 +92,7 @@ class Residue:
 class ProtStructure:
     """Protein structure class."""
 
-    def __init__(self, input_data: str | Path) -> None:
+    def __init__(self, input_data: Union[str, Path]) -> None:
         self.residues = []
         if check_path_valid(input_data):  # valid path == file
             suffixes = Path(input_data).suffixes
@@ -170,7 +170,7 @@ def check_path_valid(path: str):
     return p.is_file()
 
 
-def check_file_format(content: str) -> str:
+def check_file_format(content: str) -> Optional[str]:
     """Check if the content is PDB or CIF format."""
     pdb_keywords = ["ATOM", "HETATM", "TER", "MODEL", "ENDMDL", "HEADER", "COMPND"]
     cif_keywords = ["_atom_site.group_PDB", "_atom_site.id", "_atom_site.type_symbol"]

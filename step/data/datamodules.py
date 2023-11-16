@@ -14,7 +14,7 @@ from transformers import pipeline
 import wandb
 
 from ..models import DenoiseModel
-from .datasets import FluorescenceDataset, FoldSeekDataset, StabilityDataset
+from .datasets import FluorescenceDataset, FoldSeekDataset, HomologyDataset, StabilityDataset
 from .samplers import DynamicBatchSampler
 
 
@@ -247,3 +247,9 @@ class StabilityDataModule(DownstreamDataModule):
     """Predict peptide stability."""
 
     dataset_class = StabilityDataset
+
+
+class HomologyDataModule(DownstreamDataModule):
+    """Predict remote homology."""
+
+    dataset_class = HomologyDataset

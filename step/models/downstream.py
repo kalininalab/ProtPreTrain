@@ -97,20 +97,17 @@ class RegressionModel(BaseModel):
         """Shared step for training and validation."""
         y_hat = self.forward(batch).squeeze(-1)
         y = batch.y
-        loss = F.huber_loss(y_hat, y, delta=0.5)
+        loss = F.mse_loss(y_hat, y)
         mae = metrics.mean_absolute_error(y_hat, y)
         r2 = metrics.r2_score(y_hat, y)
-        corrcoef = metrics.spearman_corrcoef(y_hat, y)
+        spear = metrics.spearman_corrcoef(y_hat, y)
+        pears = metrics.pearson_corrcoef(y_hat, y)
         self.log(f"{step_name}/loss", loss, batch_size=batch.num_graphs)
         self.log(f"{step_name}/mae", mae, batch_size=batch.num_graphs)
         self.log(f"{step_name}/r2", r2, batch_size=batch.num_graphs)
-        self.log(f"{step_name}/corrcoef", corrcoef, batch_size=batch.num_graphs)
-        return dict(
-            loss=loss,
-            mae=mae,
-            r2=r2,
-            corrcoef=corrcoef,
-        )
+        self.log(f"{step_name}/spearman", spear, batch_size=batch.num_graphs)
+        self.log(f"{step_name}/pearson", pears, batch_size=batch.num_graphs)
+        return dict(loss=loss, mae=mae, r2=r2, spear=spear, pears=pears)
 
 
 class ClassificationModel(BaseModel):
@@ -118,11 +115,13 @@ class ClassificationModel(BaseModel):
 
     def __init__(
         self,
+        num_classes: int,
         hidden_dim: int = 512,
         dropout: float = 0.2,
     ):
         super().__init__()
-        self.linear = LazySimpleMLP(hidden_dim, 1, dropout)
+        self.linear = LazySimpleMLP(hidden_dim, num_classes, dropout)
+        self.num_classes = num_classes
 
     def forward(self, batch: Data) -> Data:
         """Return updated batch with noise and node type predictions."""
@@ -131,21 +130,13 @@ class ClassificationModel(BaseModel):
     def shared_step(self, batch: Data, step_name: str) -> dict:
         """Shared step for training and validation."""
         y_hat = self.forward(batch).squeeze(-1)
-        y = (batch.y > 2.5).long()
-        loss = F.binary_cross_entropy_with_logits(y_hat, y.float())
-        acc = metrics.accuracy(y_hat, y, "binary")
-        auc = metrics.auroc(y_hat, y, "binary")
-        mcc = metrics.matthews_corrcoef(y_hat, y, "binary")
+        y = torch.tensor(batch.y, dtype=torch.long, device=self.device)
+        loss = F.cross_entropy(y_hat, y)
+        acc = metrics.accuracy(y_hat, y, "multiclass", num_classes=self.num_classes)
+        auc = metrics.auroc(y_hat, y, "multiclass", num_classes=self.num_classes)
+        mcc = metrics.matthews_corrcoef(y_hat, y, "multiclass", num_classes=self.num_classes)
         self.log(f"{step_name}/loss", loss, batch_size=batch.num_graphs)
         self.log(f"{step_name}/acc", acc, batch_size=batch.num_graphs)
         self.log(f"{step_name}/auc", auc, batch_size=batch.num_graphs)
         self.log(f"{step_name}/mcc", mcc, batch_size=batch.num_graphs)
-        if self.global_step % 100 == 0:
-            wandb.log(
-                {
-                    f"{step_name}/conf_mat": wandb.plot.confusion_matrix(
-                        preds=(y_hat > 0).long().detach().cpu().numpy(), y_true=y.long().detach().cpu().numpy()
-                    )
-                }
-            )
         return dict(loss=loss, acc=acc, auc=auc, mcc=mcc)
