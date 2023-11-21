@@ -1,5 +1,6 @@
 import random
 
+import scipy
 import torch
 from torch_geometric.transforms import BaseTransform
 
@@ -82,7 +83,7 @@ class MaskTypeBERT(BaseTransform):
         batch.orig_x = batch.x[indices].clone()
         batch.mask = indices
         mask_indices = indices[:num_masked_nodes]  # All nodes that are masked
-        mut_indices = indices[num_masked_nodes: num_masked_nodes + num_mutated_nodes]  # All nodes that are mutated
+        mut_indices = indices[num_masked_nodes : num_masked_nodes + num_mutated_nodes]  # All nodes that are mutated
         batch.x[mask_indices] = 20
         batch.x[mut_indices] = torch.randint_like(batch.x[mut_indices], low=0, high=20)
         return batch
@@ -119,3 +120,34 @@ class SequenceOnly(BaseTransform):
 class StructureOnly(MaskType):
     def __init__(self):
         super().__init__(pick_prob=1.0)
+
+
+class SphericalHarmonics(BaseTransform):
+    def __init__(self, degree):
+        self.degree = degree
+
+    def spherical_harmonics(self, coords, degree):
+        r, theta, phi = self.cartesian_to_spherical(coords[:, 0], coords[:, 1], coords[:, 2])
+
+        harmonics = []
+        for m in range(-degree, degree + 1):
+            Y_m_l = [
+                scipy.special.sph_harm(m, degree, phi_i.item(), theta_i.item()) for phi_i, theta_i in zip(phi, theta)
+            ]
+            Y_m_l = torch.tensor(Y_m_l, dtype=torch.complex64)
+            harmonics.append(Y_m_l)
+
+        return torch.stack(harmonics, dim=-1)
+
+    @staticmethod
+    def cartesian_to_spherical(x, y, z):
+        r = torch.sqrt(x**2 + y**2 + z**2)
+        theta = torch.acos(z / r)  # polar angle
+        phi = torch.atan2(y, x)  # azimuthal angle
+        return r, theta, phi
+
+    def __call__(self, data):
+        coords = data.pos
+        harmonics = self.spherical_harmonics(coords, self.degree)
+        data.sph_harmonics = harmonics
+        return data

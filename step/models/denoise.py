@@ -4,9 +4,11 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 import torch_geometric
+from equiformer_pytorch import Equiformer
 from graphgps.layer.gps_layer import GPSLayer
 from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
+from torch_geometric.utils import to_dense_adj, to_dense_batch
 from torchmetrics import ConfusionMatrix
 
 import wandb
@@ -29,28 +31,29 @@ class DenoiseModel(LightningModule):
         dropout: float = 0.1,
         attn_dropout: float = 0.1,
         alpha: float = 1.0,
-        weighted_loss: bool = False,
         predict_all: bool = True,
     ):
         super().__init__()
         self.save_hyperparameters()
-        self.weighted_loss = weighted_loss
         self.alpha = alpha
         self.predict_all = predict_all
         self.feat_encode = torch.nn.Embedding(21, hidden_dim)
         self.edge_encode = torch.nn.Linear(3, hidden_dim)
-        self.node_encode = torch.nn.Sequential(
-            *[
-                GPSLayer(
-                    hidden_dim,
-                    local_module,
-                    global_module,
-                    num_heads,
-                    dropout=dropout,
-                    attn_dropout=attn_dropout,
-                )
-                for _ in range(num_layers)
-            ]
+        self.node_encode = Equiformer(
+            dim=hidden_dim,
+            heads=num_heads,
+            depth=num_layers,
+            l2_dist_attention=True,
+            dim_head=4,
+            num_degrees=2,
+            valid_radius=7,
+            reduce_dim_out=False,
+            attend_sparse_neighbors=True,
+            single_headed_kv=True,
+            radial_hidden_dim=32,
+            num_neighbors=128,
+            num_adj_degrees_embed=2,
+            reversible=True,
         )
         self.noise_pred = SimpleMLP(hidden_dim, hidden_dim, 3, dropout)
         self.type_pred = SimpleMLP(hidden_dim, hidden_dim, 20, dropout)
@@ -59,14 +62,17 @@ class DenoiseModel(LightningModule):
 
     def forward(self, batch: Data) -> Data:
         """Return updated batch with noise and node type predictions."""
-        batch.x = self.feat_encode(batch.x)
-        batch.edge_attr = self.edge_encode(batch.edge_attr)
-        batch = self.node_encode(batch)
+        x = self.feat_encode(batch.x)
+        x, mask = to_dense_batch(x, batch.batch)
+        pos, _ = to_dense_batch(batch.pos, batch.batch)
+        adj_mat = to_dense_adj(batch.edge_index, batch.batch)
+        out = self.node_encode(x, pos, mask, adj_mat=adj_mat.bool())
+        x = out.type0[mask]
         if self.predict_all:
-            batch.type_pred = self.type_pred(batch.x)
+            batch.type_pred = self.type_pred(x)
         else:
-            batch.type_pred = self.type_pred(batch.x[batch.mask])
-        batch.noise_pred = self.noise_pred(batch.x)
+            batch.type_pred = self.type_pred(x[batch.mask])
+        batch.noise_pred = self.noise_pred(x)
         return batch
 
     def log_confmat(self):

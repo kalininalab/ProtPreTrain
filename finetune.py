@@ -7,7 +7,7 @@ import torch_geometric.transforms as T
 
 import wandb
 from step.data import FluorescenceDataModule, HomologyDataModule, StabilityDataModule
-from step.models import ClassificationModel, RegressionModel
+from step.models import ClassificationModel, HomologyModel, RegressionModel
 
 # Ignore all deprecation warnings
 warnings.filterwarnings("ignore")
@@ -23,12 +23,12 @@ parser.add_argument("--batch_size", type=int, default=1024)
 parser.add_argument("--num_workers", type=int, default=0)
 config = parser.parse_args()
 
-logger = pl.loggers.WandbLogger(project="STEP_" + config.dataset, log_model=True, dir="wandb", config=config)
+logger = pl.loggers.WandbLogger(project=config.dataset, log_model=True, dir="wandb", config=config)
 
 config = wandb.config
 print(config)
 if config.dataset == "homology":
-    model = ClassificationModel(hidden_dim=config.hidden_dim, dropout=config.dropout, num_classes=1195)
+    model = HomologyModel(hidden_dim=config.hidden_dim, dropout=config.dropout, num_classes=1195)
 else:
     model = RegressionModel(hidden_dim=config.hidden_dim, dropout=config.dropout)
 data = {
@@ -57,4 +57,3 @@ trainer = pl.Trainer(
 )
 trainer.fit(model, data)
 trainer.test(model, data)
-wandb.finish()

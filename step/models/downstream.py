@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torchmetrics.functional as metrics
 from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
+from torch_geometric.utils import to_dense_batch
 
 import wandb
 
@@ -50,19 +51,24 @@ class BaseModel(LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-    def training_step(self, batch: Data, batch_idx: int) -> dict:
+    def forward(self, batch: Data) -> torch.Tensor:
+        """Return updated batch with noise and node type predictions."""
+        x, mask = to_dense_batch(batch.x, batch.batch)
+        return self.linear(x)
+
+    def training_step(self, *args, **kwargs) -> dict:
         """Training step."""
         if self.global_step == 0:
             wandb.define_metric("val/loss", summary="min")
-        return self.shared_step(batch, "train")
+        return self.shared_step(*args, **kwargs, step_name="train")
 
-    def validation_step(self, batch: Data, batch_idx: int) -> dict:
+    def validation_step(self, *args, **kwargs) -> dict:
         """Validation step."""
-        return self.shared_step(batch, "val")
+        return self.shared_step(*args, **kwargs, step_name="val")
 
-    def test_step(self, batch: Data, batch_idx: int) -> dict:
-        """Test step."""
-        return self.shared_step(batch, "test")
+    def test_step(self, *args, **kwargs) -> dict:
+        """Validation step."""
+        return self.shared_step(*args, **kwargs, step_name="test")
 
     def configure_optimizers(self) -> Any:
         """Configure optimizers."""
@@ -91,9 +97,10 @@ class RegressionModel(BaseModel):
 
     def forward(self, batch: Data) -> Data:
         """Return updated batch with noise and node type predictions."""
-        return self.linear(batch.x.view(batch.num_graphs, -1))
+        x, mask = to_dense_batch(batch.x, batch.batch)
+        return self.linear(x)
 
-    def shared_step(self, batch: Data, step_name: str) -> dict:
+    def shared_step(self, batch: Data, batch_idx: int = 0, *, step_name: str = "train") -> dict:
         """Shared step for training and validation."""
         y_hat = self.forward(batch).squeeze(-1)
         y = batch.y
@@ -102,11 +109,14 @@ class RegressionModel(BaseModel):
         r2 = metrics.r2_score(y_hat, y)
         spear = metrics.spearman_corrcoef(y_hat, y)
         pears = metrics.pearson_corrcoef(y_hat, y)
-        self.log(f"{step_name}/loss", loss, batch_size=batch.num_graphs)
-        self.log(f"{step_name}/mae", mae, batch_size=batch.num_graphs)
-        self.log(f"{step_name}/r2", r2, batch_size=batch.num_graphs)
-        self.log(f"{step_name}/spearman", spear, batch_size=batch.num_graphs)
-        self.log(f"{step_name}/pearson", pears, batch_size=batch.num_graphs)
+        metrics_dict = {
+            f"{step_name}/loss": loss,
+            f"{step_name}/mae": mae,
+            f"{step_name}/r2": r2,
+            f"{step_name}/spearman": spear,
+            f"{step_name}/pearson": pears,
+        }
+        self.log_dict(metrics_dict, batch_size=batch.num_graphs, add_dataloader_idx=False)
         return dict(loss=loss, mae=mae, r2=r2, spear=spear, pears=pears)
 
 
@@ -123,20 +133,26 @@ class ClassificationModel(BaseModel):
         self.linear = LazySimpleMLP(hidden_dim, num_classes, dropout)
         self.num_classes = num_classes
 
-    def forward(self, batch: Data) -> Data:
-        """Return updated batch with noise and node type predictions."""
-        return self.linear(batch.x.view(batch.num_graphs, -1))
-
-    def shared_step(self, batch: Data, step_name: str) -> dict:
+    def shared_step(self, batch: Data, batch_idx: int = 0, *, step_name: str = "train") -> dict:
         """Shared step for training and validation."""
-        y_hat = self.forward(batch).squeeze(-1)
+        y_hat = self.forward(batch)
         y = torch.tensor(batch.y, dtype=torch.long, device=self.device)
         loss = F.cross_entropy(y_hat, y)
         acc = metrics.accuracy(y_hat, y, "multiclass", num_classes=self.num_classes)
         auc = metrics.auroc(y_hat, y, "multiclass", num_classes=self.num_classes)
         mcc = metrics.matthews_corrcoef(y_hat, y, "multiclass", num_classes=self.num_classes)
-        self.log(f"{step_name}/loss", loss, batch_size=batch.num_graphs)
-        self.log(f"{step_name}/acc", acc, batch_size=batch.num_graphs)
-        self.log(f"{step_name}/auc", auc, batch_size=batch.num_graphs)
-        self.log(f"{step_name}/mcc", mcc, batch_size=batch.num_graphs)
+        metrics_dict = {
+            f"{step_name}/loss": loss,
+            f"{step_name}/acc": acc,
+            f"{step_name}/auc": auc,
+            f"{step_name}/mcc": mcc,
+        }
+        self.log_dict(metrics_dict, batch_size=batch.num_graphs, add_dataloader_idx=False)
         return dict(loss=loss, acc=acc, auc=auc, mcc=mcc)
+
+
+class HomologyModel(ClassificationModel):
+    def test_step(self, batch: Data, batch_idx: int, dataloader_idx: int) -> dict:
+        """Test step."""
+        step_name = ["fold", "superfamily", "family"]
+        return self.shared_step(batch, step_name=f"test_{step_name[dataloader_idx]}")

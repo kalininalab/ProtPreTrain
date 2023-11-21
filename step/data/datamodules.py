@@ -253,3 +253,67 @@ class HomologyDataModule(DownstreamDataModule):
     """Predict remote homology."""
 
     dataset_class = HomologyDataset
+
+    def setup(self, stage: str = None):
+        """Load the individual datasets."""
+        if self.feature_extract_model_source == "wandb":
+            pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
+            transform = T.Compose([T.RadiusGraph(7), T.ToUndirected(), T.Spherical()])
+        else:
+            pre_transform = None
+            transform = None
+        splits = []
+        if stage == "fit" or stage is None:
+            splits.append("train")
+            splits.append("val")
+            self.train = self.dataset_class(
+                "train",
+                transform=transform,
+                pre_transform=pre_transform,
+                **self.kwargs,
+            )
+            self.val = self.dataset_class(
+                "val",
+                transform=transform,
+                pre_transform=pre_transform,
+                **self.kwargs,
+            )
+        if stage == "test" or stage is None:
+            splits += ["test_fold", "test_family", "test_superfamily"]
+            self.test_fold = self.dataset_class(
+                "test_fold", transform=transform, pre_transform=pre_transform, **self.kwargs
+            )
+            self.test_superfamily = self.dataset_class(
+                "test_superfamily", transform=transform, pre_transform=pre_transform, **self.kwargs
+            )
+            self.test_family = self.dataset_class(
+                "test_family", transform=transform, pre_transform=pre_transform, **self.kwargs
+            )
+        if self.feature_extract_model_source == "wandb":
+            self._embed_with_wandb(splits)
+        elif self.feature_extract_model_source == "huggingface":
+            self._embed_with_huggingface(splits)
+        elif self.feature_extract_model_source == "ankh":
+            self._embed_with_ankh(splits)
+        else:
+            raise ValueError(f"Unknown feature extract model source {self.feature_extract_model_source}")
+
+    def test_dataloader(self):
+        """Test dataloader."""
+        return [
+            self._get_dataloader(self.test_fold),
+            self._get_dataloader(self.test_superfamily),
+            self._get_dataloader(self.test_family),
+        ]
+
+    def _assign_data(self, split: str, data_list: List[Data]):
+        if split == "train":
+            self.train = data_list
+        elif split == "val":
+            self.val = data_list
+        elif split == "test_fold":
+            self.test_fold = data_list
+        elif split == "test_superfamily":
+            self.test_superfamily = data_list
+        elif split == "test_family":
+            self.test_family = data_list
