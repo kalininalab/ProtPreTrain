@@ -3,13 +3,12 @@ trainer:
   logger:
     class_path: WandbLogger
     init_args:
-      name: foldseek
       project: step
       log_model: all
       dir: wandb
-      tags: [model0]
+      tags: [model0, test]
   enable_checkpointing: true
-  profiler: pytorch
+  # profiler: pytorch
   callbacks:
     - class_path: ModelCheckpoint
       init_args:
@@ -55,15 +54,15 @@ data:
         init_args:
           r: 7.0
       - class_path: torch_geometric.transforms.ToUndirected
-      # - class_path: torch_geometric.transforms.AddRandomWalkPE
-      #   init_args:
-      #     walk_length: 20
-      #     attr_name: pe
+      - class_path: step.data.transforms.RandomWalkPE
+        init_args:
+          walk_length: 20
+          attr_name: pe
     num_workers: 10
     shuffle: true
-    batch_sampling: false
-    batch_size: 4
-    # max_num_nodes: 4096
+    batch_sampling: true
+    # batch_size: 4
+    max_num_nodes: 4096
 optimizer:
   class_path: torch.optim.Adam
   init_args:

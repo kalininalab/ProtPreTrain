@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List
+from typing import List, Literal
 
 import ankh
 import torch
@@ -15,6 +15,7 @@ import wandb
 
 from ..models import DenoiseModel
 from .datasets import FluorescenceDataset, FoldSeekDataset, HomologyDataset, StabilityDataset
+from .transforms import RandomWalkPE, SequenceOnly, StructureOnly
 
 
 class FoldSeekDataModule(LightningDataModule):
@@ -48,7 +49,7 @@ class FoldSeekDataModule(LightningDataModule):
                 max_num=self.max_num_nodes,
                 shuffle=self.shuffle,
                 skip_too_big=True,
-                num_steps=int(2.2e6 / self.max_num_nodes * 300),
+                num_steps=int(2.2e6 / self.max_num_nodes * 200),
             )
             return DataLoader(ds, batch_sampler=sampler, num_workers=self.num_workers)
         else:
@@ -87,6 +88,7 @@ class DownstreamDataModule(LightningDataModule):
         batch_size: int = 128,
         num_workers: int = 8,
         shuffle: bool = True,
+        ablation: Literal["none", "sequence", "structure"] = "none",
         **kwargs,
     ):
         super().__init__()
@@ -95,6 +97,7 @@ class DownstreamDataModule(LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.shuffle = shuffle
+        self.ablation = ablation
         self.kwargs = kwargs
 
     def _get_dataloader(self, ds: Dataset) -> DataLoader:
@@ -139,7 +142,12 @@ class DownstreamDataModule(LightningDataModule):
         """Load the individual datasets."""
         if self.feature_extract_model_source == "wandb":
             pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
-            transform = T.Compose([T.RadiusGraph(10), T.ToUndirected(), T.AddRandomWalkPE(20, attr_name="pe")])
+            transform = [T.RadiusGraph(7), T.ToUndirected(), RandomWalkPE(20, "pe")]
+            if self.ablation == "sequence":
+                transform.append(SequenceOnly())
+            elif self.ablation == "structure":
+                transform.append(StructureOnly())
+            transform = T.Compose(transform)
         else:
             pre_transform = None
             transform = None
