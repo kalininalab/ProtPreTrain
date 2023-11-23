@@ -24,22 +24,34 @@ trainer:
   max_epochs: 10000
   log_every_n_steps: 50
   accelerator: gpu
+<<<<<<< HEAD
   devices: 4
   sync_batchnorm: false
   strategy: ddp
   precision: bf16-mixed
+=======
+  # strategy: ddp
+  # precision: bf16-mixed
+>>>>>>> d77c8256ecb052eeeb9d1a152833fbcc9b9384d8
 model:
   class_path: DenoiseModel
   init_args:
     local_module: GAT
     global_module: Performer
+<<<<<<< HEAD
     hidden_dim: 1280
     num_layers: 32
     num_heads: 16
     dropout: 0.05
     attn_dropout: 0.05
+=======
+    hidden_dim: 32
+    num_layers: 8
+    num_heads: 8
+    dropout: 0.1
+    attn_dropout: 0.1
+>>>>>>> d77c8256ecb052eeeb9d1a152833fbcc9b9384d8
     alpha: 1.0
-    weighted_loss: false
     predict_all: false
 data:
   class_path: FoldSeekDataModule
@@ -59,11 +71,19 @@ data:
         init_args:
           r: 7.0
       - class_path: torch_geometric.transforms.ToUndirected
+<<<<<<< HEAD
       - class_path: torch_geometric.transforms.Spherical
     num_workers: 16
     shuffle: true
     batch_sampling: false
     batch_size: 4
+=======
+    num_workers: 10
+    shuffle: true
+    batch_sampling: false
+    batch_size: 4
+    # max_num_nodes: 1024
+>>>>>>> d77c8256ecb052eeeb9d1a152833fbcc9b9384d8
 optimizer:
   class_path: torch.optim.Adam
   init_args:

@@ -1,7 +1,31 @@
 import random
+from typing import Any
 
+import numpy as np
+import scipy
 import torch
+from torch_geometric.data import Data
 from torch_geometric.transforms import BaseTransform
+from torch_geometric.utils import to_dense_adj
+
+
+class RandomWalkPE(BaseTransform):
+    def __init__(self, walk_length: int, attr_name="random_walk_pe"):
+        self.walk_length = walk_length
+        self.attr_name = attr_name
+
+    def forward(self, data: Data) -> Data:
+        adj = to_dense_adj(data.edge_index)[0]
+        row_sums = adj.sum(dim=1, keepdim=True)
+        adj_normalized = adj / row_sums.clamp(min=1)
+        pe_list = [torch.zeros_like(adj).diag()]
+        walk_matrix = adj_normalized
+        for _ in range(self.walk_length - 1):
+            walk_matrix = walk_matrix @ adj_normalized
+            pe_list.append(walk_matrix.diag())
+        pe = torch.stack(pe_list, dim=-1)
+        data[self.attr_name] = pe
+        return data
 
 
 class PosNoise(BaseTransform):
@@ -82,7 +106,7 @@ class MaskTypeBERT(BaseTransform):
         batch.orig_x = batch.x[indices].clone()
         batch.mask = indices
         mask_indices = indices[:num_masked_nodes]  # All nodes that are masked
-        mut_indices = indices[num_masked_nodes: num_masked_nodes + num_mutated_nodes]  # All nodes that are mutated
+        mut_indices = indices[num_masked_nodes : num_masked_nodes + num_mutated_nodes]  # All nodes that are mutated
         batch.x[mask_indices] = 20
         batch.x[mut_indices] = torch.randint_like(batch.x[mut_indices], low=0, high=20)
         return batch
@@ -110,12 +134,25 @@ class SequenceOnly(BaseTransform):
     """Removes all node features except the sequence."""
 
     def __call__(self, batch) -> torch.Tensor:
+        n = batch.x.size(0)
+
+        # delete all edges between non-neighboring nodes
         batch.orig_edge_index = batch.edge_index.clone()
-        tmp = torch.abs(batch.edge_index[0, :] - batch.edge_index[1, :])  # Dims need adjustment in case of batching
+        tmp = torch.abs(batch.edge_index[0, :] - batch.edge_index[1, :])
         batch.edge_index = torch.tensor(torch.stack(list(filter(lambda x: x <= 1, tmp))), dtype=torch.long)
+
+        # arrange nodes as a line on the x-axis to remove positional-structural information
+        # inside torch.arange, I adjusted the numbers to center the atoms at (0, 0, 0). The original formula is
+        # torch.arange(0, n * 3.8, 3.8) - (n-1) * 1.9, which can be reformulated to the following:
+        batch.pos = torch.stack(
+            (torch.arange(-(n - 1) * 1.9, (n + 1) * 1.9, 3.8), torch.zeros(n), torch.zeros(n)), dim=1
+        )
+
         return batch
 
 
 class StructureOnly(MaskType):
+    """Mask everything"""
+
     def __init__(self):
         super().__init__(pick_prob=1.0)

@@ -1,5 +1,4 @@
 import os
-from abc import ABC
 from pathlib import Path
 from typing import Callable, List
 
@@ -15,7 +14,7 @@ from .parsers import ProtStructure
 from .utils import apply_edits, compute_edits
 
 
-class FoldSeekDataset(Dataset, ABC):
+class FoldSeekDataset(Dataset):
     """
     Dataset for pre-training.
     """
@@ -64,7 +63,7 @@ class FoldSeekDataset(Dataset, ABC):
         return [f"data_{i}.pt" for i in range(0, self.len(), 1000)]
 
 
-class FoldSeekSmallDataset(FoldSeekDataset, ABC):
+class FoldSeekSmallDataset(FoldSeekDataset):
     """For debugging, only E. Coli."""
 
     @property
@@ -76,14 +75,14 @@ class FoldSeekSmallDataset(FoldSeekDataset, ABC):
         return 8726
 
 
-class DownstreamDataset(InMemoryDataset, ABC):
+class DownstreamDataset(InMemoryDataset):
     """Abstract class for downstream datasets. self._prepare_data should be implemented."""
 
     splits = {"train": 0, "val": 1, "test": 2}
     root = None
     wandb_name = None
 
-    def __init__(self, split: str, transform=None, pre_transform=None, pre_filter=None):
+    def __init__(self, split: str, *, transform=None, pre_transform=None, pre_filter=None):
         super().__init__(self.root, transform, pre_transform, pre_filter)
         self.data, self.slices = torch.load(self.processed_paths[self.splits[split]])
 
@@ -94,7 +93,6 @@ class DownstreamDataset(InMemoryDataset, ABC):
 
     @property
     def processed_file_names(self):
-        """Files that have to be present in the processed directory."""
         return ["train.pt", "valid.pt", "test.pt"]
 
     def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
@@ -102,13 +100,7 @@ class DownstreamDataset(InMemoryDataset, ABC):
 
     def process(self):
         """Do the full run for the dataset."""
-        for split in ["train", "valid", "test"]:
-            if split == "train":
-                idx = 0
-            elif split == "valid":
-                idx = 1
-            elif split == "test":
-                idx = 2
+        for split, idx in self.splits.items():
             df = pd.read_json(self.raw_paths[idx])
             data_list = self._prepare_data(df)
 
@@ -195,6 +187,7 @@ class StabilityDataset(DownstreamDataset):
 
 
 class HomologyDataset(DownstreamDataset):
+    splits = {"train": 0, "val": 1, "test_fold": 2, "test_superfamily": 3, "test_family": 4}
     root = "data/homology"
     wandb_name = "ilsenatorov/homology/homology_dataset:latest"
 
@@ -204,19 +197,25 @@ class HomologyDataset(DownstreamDataset):
         return [
             "remote_homology_train.json",
             "remote_homology_valid.json",
+            "remote_homology_test_fold_holdout.json",
             "remote_homology_test_superfamily_holdout.json",
+            "remote_homology_test_family_holdout.json",
             "homology_db",
             "homology_db.index",
             "homology_db.lookup",
             "homology_db.dbtype",
         ]
 
+    @property
+    def processed_file_names(self):
+        return ["train.pt", "valid.pt", "test_fold.pt", "test_superfamily.pt", "test_family.pt"]
+
     def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
         data_list = []
         ids = df["id"].tolist()
         df.set_index("id", inplace=True)
 
-        with foldcomp.open(self.raw_paths[3], ids=ids) as db:
+        with foldcomp.open(self.raw_paths[5], ids=ids) as db:
             for name, pdb in tqdm(db):
                 struct = ProtStructure(pdb)
                 graph = Data(**struct.get_graph())

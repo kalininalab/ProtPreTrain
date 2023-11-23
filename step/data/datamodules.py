@@ -1,12 +1,12 @@
 from pathlib import Path
-from typing import List
+from typing import List, Literal
 
 import ankh
 import torch
 import torch_geometric.transforms as T
 from pytorch_lightning import LightningDataModule, Trainer
 from torch_geometric.data import Data, Dataset
-from torch_geometric.loader import DataLoader
+from torch_geometric.loader import DataLoader, DynamicBatchSampler
 from torch_geometric.transforms import BaseTransform
 from tqdm import tqdm
 from transformers import pipeline
@@ -15,7 +15,7 @@ import wandb
 
 from ..models import DenoiseModel
 from .datasets import FluorescenceDataset, FoldSeekDataset, HomologyDataset, StabilityDataset
-from .samplers import DynamicBatchSampler
+from .transforms import RandomWalkPE, SequenceOnly, StructureOnly
 
 
 class FoldSeekDataModule(LightningDataModule):
@@ -43,7 +43,14 @@ class FoldSeekDataModule(LightningDataModule):
     def _get_dataloader(self, ds: Dataset) -> DataLoader:
         if self.batch_sampling:
             assert self.max_num_nodes > 0
-            sampler = DynamicBatchSampler(ds, self.max_num_nodes, self.shuffle)
+            sampler = DynamicBatchSampler(
+                ds,
+                mode="node",
+                max_num=self.max_num_nodes,
+                shuffle=self.shuffle,
+                skip_too_big=True,
+                num_steps=int(2.2e6 / self.max_num_nodes * 200),
+            )
             return DataLoader(ds, batch_sampler=sampler, num_workers=self.num_workers)
         else:
             return DataLoader(ds, **self._dl_kwargs(False))
@@ -81,6 +88,7 @@ class DownstreamDataModule(LightningDataModule):
         batch_size: int = 128,
         num_workers: int = 8,
         shuffle: bool = True,
+        ablation: Literal["none", "sequence", "structure"] = "none",
         **kwargs,
     ):
         super().__init__()
@@ -89,6 +97,7 @@ class DownstreamDataModule(LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.shuffle = shuffle
+        self.ablation = ablation
         self.kwargs = kwargs
 
     def _get_dataloader(self, ds: Dataset) -> DataLoader:
@@ -133,7 +142,12 @@ class DownstreamDataModule(LightningDataModule):
         """Load the individual datasets."""
         if self.feature_extract_model_source == "wandb":
             pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
-            transform = T.Compose([T.RadiusGraph(7), T.ToUndirected(), T.Spherical()])
+            transform = [T.RadiusGraph(7), T.ToUndirected(), RandomWalkPE(20, "pe")]
+            if self.ablation == "sequence":
+                transform.append(SequenceOnly())
+            elif self.ablation == "structure":
+                transform.append(StructureOnly())
+            transform = T.Compose(transform)
         else:
             pre_transform = None
             transform = None
@@ -253,3 +267,67 @@ class HomologyDataModule(DownstreamDataModule):
     """Predict remote homology."""
 
     dataset_class = HomologyDataset
+
+    def setup(self, stage: str = None):
+        """Load the individual datasets."""
+        if self.feature_extract_model_source == "wandb":
+            pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
+            transform = T.Compose([T.RadiusGraph(7), T.ToUndirected(), T.Spherical()])
+        else:
+            pre_transform = None
+            transform = None
+        splits = []
+        if stage == "fit" or stage is None:
+            splits.append("train")
+            splits.append("val")
+            self.train = self.dataset_class(
+                "train",
+                transform=transform,
+                pre_transform=pre_transform,
+                **self.kwargs,
+            )
+            self.val = self.dataset_class(
+                "val",
+                transform=transform,
+                pre_transform=pre_transform,
+                **self.kwargs,
+            )
+        if stage == "test" or stage is None:
+            splits += ["test_fold", "test_family", "test_superfamily"]
+            self.test_fold = self.dataset_class(
+                "test_fold", transform=transform, pre_transform=pre_transform, **self.kwargs
+            )
+            self.test_superfamily = self.dataset_class(
+                "test_superfamily", transform=transform, pre_transform=pre_transform, **self.kwargs
+            )
+            self.test_family = self.dataset_class(
+                "test_family", transform=transform, pre_transform=pre_transform, **self.kwargs
+            )
+        if self.feature_extract_model_source == "wandb":
+            self._embed_with_wandb(splits)
+        elif self.feature_extract_model_source == "huggingface":
+            self._embed_with_huggingface(splits)
+        elif self.feature_extract_model_source == "ankh":
+            self._embed_with_ankh(splits)
+        else:
+            raise ValueError(f"Unknown feature extract model source {self.feature_extract_model_source}")
+
+    def test_dataloader(self):
+        """Test dataloader."""
+        return [
+            self._get_dataloader(self.test_fold),
+            self._get_dataloader(self.test_superfamily),
+            self._get_dataloader(self.test_family),
+        ]
+
+    def _assign_data(self, split: str, data_list: List[Data]):
+        if split == "train":
+            self.train = data_list
+        elif split == "val":
+            self.val = data_list
+        elif split == "test_fold":
+            self.test_fold = data_list
+        elif split == "test_superfamily":
+            self.test_superfamily = data_list
+        elif split == "test_family":
+            self.test_family = data_list
