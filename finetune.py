@@ -21,6 +21,7 @@ parser.add_argument("--hidden_dim", type=int, default=512)
 parser.add_argument("--dropout", type=float, default=0.2)
 parser.add_argument("--batch_size", type=int, default=1024)
 parser.add_argument("--num_workers", type=int, default=0)
+parser.add_argument("--ablation", type=str, default="")
 config = parser.parse_args()
 
 logger = pl.loggers.WandbLogger(project=config.dataset, log_model=True, dir="wandb", config=config)

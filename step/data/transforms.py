@@ -111,9 +111,18 @@ class SequenceOnly(BaseTransform):
     """Removes all node features except the sequence."""
 
     def __call__(self, batch) -> torch.Tensor:
+        n = batch.x.size(0)
+
+        # delete all edges between non-neighboring nodes
         batch.orig_edge_index = batch.edge_index.clone()
-        tmp = torch.abs(batch.edge_index[0, :] - batch.edge_index[1, :])  # Dims need adjustment in case of batching
+        tmp = torch.abs(batch.edge_index[0, :] - batch.edge_index[1, :])
         batch.edge_index = torch.tensor(torch.stack(list(filter(lambda x: x <= 1, tmp))), dtype=torch.long)
+
+        # arrange nodes as a line on the x-axis to remove positional-structural information
+        # inside torch.arange, I adjusted the numbers to center the atoms at (0, 0, 0). The original formula is
+        # torch.arange(0, n * 3.8, 3.8) - (n-1) * 1.9, which can be reformulated to the following:
+        batch.pos = torch.stack((torch.arange(-(n-1) * 1.9, (n + 1) * 1.9, 3.8), torch.zeros(n), torch.zeros(n)), dim=1)
+
         return batch
 
 

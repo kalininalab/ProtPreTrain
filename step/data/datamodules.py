@@ -13,6 +13,7 @@ from transformers import pipeline
 
 import wandb
 
+from .transforms import SequenceOnly, StructureOnly
 from ..models import DenoiseModel
 from .datasets import FluorescenceDataset, FoldSeekDataset, HomologyDataset, StabilityDataset
 from .samplers import DynamicBatchSampler
@@ -81,6 +82,7 @@ class DownstreamDataModule(LightningDataModule):
         batch_size: int = 128,
         num_workers: int = 8,
         shuffle: bool = True,
+        ablation: str = "",
         **kwargs,
     ):
         super().__init__()
@@ -89,6 +91,7 @@ class DownstreamDataModule(LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.shuffle = shuffle
+        self.ablation = ablation
         self.kwargs = kwargs
 
     def _get_dataloader(self, ds: Dataset) -> DataLoader:
@@ -133,7 +136,12 @@ class DownstreamDataModule(LightningDataModule):
         """Load the individual datasets."""
         if self.feature_extract_model_source == "wandb":
             pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
-            transform = T.Compose([T.RadiusGraph(7), T.ToUndirected(), T.Spherical()])
+            transform = [T.RadiusGraph(7), T.ToUndirected(), T.Spherical()]
+            if self.ablation == "sequence":
+                transform.append(SequenceOnly())
+            elif self.ablation == "structure":
+                transform.append(StructureOnly())
+            transform = T.Compose(transform)
         else:
             pre_transform = None
             transform = None
