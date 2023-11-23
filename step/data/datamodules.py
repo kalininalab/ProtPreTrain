@@ -6,7 +6,7 @@ import torch
 import torch_geometric.transforms as T
 from pytorch_lightning import LightningDataModule, Trainer
 from torch_geometric.data import Data, Dataset
-from torch_geometric.loader import DataLoader
+from torch_geometric.loader import DataLoader, DynamicBatchSampler
 from torch_geometric.transforms import BaseTransform
 from tqdm import tqdm
 from transformers import pipeline
@@ -15,7 +15,6 @@ import wandb
 
 from ..models import DenoiseModel
 from .datasets import FluorescenceDataset, FoldSeekDataset, HomologyDataset, StabilityDataset
-from .samplers import DynamicBatchSampler
 
 
 class FoldSeekDataModule(LightningDataModule):
@@ -43,7 +42,14 @@ class FoldSeekDataModule(LightningDataModule):
     def _get_dataloader(self, ds: Dataset) -> DataLoader:
         if self.batch_sampling:
             assert self.max_num_nodes > 0
-            sampler = DynamicBatchSampler(ds, self.max_num_nodes, self.shuffle)
+            sampler = DynamicBatchSampler(
+                ds,
+                mode="node",
+                max_num=self.max_num_nodes,
+                shuffle=self.shuffle,
+                skip_too_big=True,
+                num_steps=1000000,
+            )
             return DataLoader(ds, batch_sampler=sampler, num_workers=self.num_workers)
         else:
             return DataLoader(ds, **self._dl_kwargs(False))
@@ -133,7 +139,7 @@ class DownstreamDataModule(LightningDataModule):
         """Load the individual datasets."""
         if self.feature_extract_model_source == "wandb":
             pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
-            transform = T.Compose([T.RadiusGraph(7), T.ToUndirected(), T.Spherical()])
+            transform = T.Compose([T.RadiusGraph(10), T.ToUndirected(), T.AddRandomWalkPE(20, attr_name="pe")])
         else:
             pre_transform = None
             transform = None

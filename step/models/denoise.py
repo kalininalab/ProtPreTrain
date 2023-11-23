@@ -1,21 +1,39 @@
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 import torch
 import torch.nn.functional as F
-import torch_geometric
-from equiformer_pytorch import Equiformer
-from graphgps.layer.gps_layer import GPSLayer
+import torch_geometric as pyg
+import torchmetrics as metrics
 from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
-from torch_geometric.utils import to_dense_adj, to_dense_batch
 from torchmetrics import ConfusionMatrix
 
 import wandb
 
 from ..data.parsers import THREE_TO_ONE
 from ..utils import plot_aa_tsne, plot_confmat, plot_node_embeddings
-from .downstream import LazySimpleMLP, SimpleMLP
+from .downstream import SimpleMLP
+
+
+class RedrawProjection:
+    def __init__(self, model: torch.nn.Module, redraw_interval: int = None):
+        self.model = model
+        self.redraw_interval = redraw_interval
+        self.num_last_redraw = 0
+
+    def redraw_projections(self):
+        if not self.model.training or self.redraw_interval is None:
+            return
+        if self.num_last_redraw >= self.redraw_interval:
+            fast_attentions = [
+                module for module in self.model.modules() if isinstance(module, pyg.nn.attention.PerformerAttention)
+            ]
+            for fast_attention in fast_attentions:
+                fast_attention.redraw_projection_matrix()
+            self.num_last_redraw = 0
+            return
+        self.num_last_redraw += 1
 
 
 class DenoiseModel(LightningModule):
@@ -23,56 +41,60 @@ class DenoiseModel(LightningModule):
 
     def __init__(
         self,
-        local_module: str = "GAT",
-        global_module: str = "Performer",
         hidden_dim: int = 512,
+        pe_dim: int = 64,
+        pos_dim: int = 64,
         num_layers: int = 6,
-        num_heads: int = 4,
-        dropout: float = 0.1,
-        attn_dropout: float = 0.1,
+        heads: int = 8,
+        attn_type: Literal["multihead", "performer"] = "performer",
+        dropout: float = 0.5,
         alpha: float = 1.0,
         predict_all: bool = True,
     ):
         super().__init__()
+        assert hidden_dim > (pos_dim + pe_dim)
         self.save_hyperparameters()
         self.alpha = alpha
         self.predict_all = predict_all
-        self.feat_encode = torch.nn.Embedding(21, hidden_dim)
-        self.edge_encode = torch.nn.Linear(3, hidden_dim)
-        self.node_encode = Equiformer(
-            dim=hidden_dim,
-            heads=num_heads,
-            depth=num_layers,
-            l2_dist_attention=True,
-            dim_head=4,
-            num_degrees=2,
-            valid_radius=7,
-            reduce_dim_out=False,
-            attend_sparse_neighbors=True,
-            single_headed_kv=True,
-            radial_hidden_dim=32,
-            num_neighbors=128,
-            num_adj_degrees_embed=2,
-            reversible=True,
-        )
+        self.feat_encode = torch.nn.Embedding(21, hidden_dim - pos_dim - pe_dim)
+        self.pe_encode = torch.nn.Linear(20, pe_dim)
+        self.pe_norm = torch.nn.BatchNorm1d(20)
+        self.pos_encode = torch.nn.Linear(3, pos_dim)
+        self.convs = torch.nn.ModuleList()
+        for _ in range(num_layers):
+            nn = torch.nn.Sequential(
+                torch.nn.Linear(hidden_dim, hidden_dim),
+                torch.nn.ReLU(),
+                torch.nn.Linear(hidden_dim, hidden_dim),
+            )
+            conv = pyg.nn.GPSConv(
+                hidden_dim, pyg.nn.GINConv(nn), heads=heads, attn_type=attn_type, attn_kwargs={"dropout": dropout}
+            )
+            self.convs.append(conv)
         self.noise_pred = SimpleMLP(hidden_dim, hidden_dim, 3, dropout)
         self.type_pred = SimpleMLP(hidden_dim, hidden_dim, 20, dropout)
         self.confmat = ConfusionMatrix(task="multiclass", num_classes=20, normalize="true")
-        self.aggr = torch_geometric.nn.aggr.MeanAggregation()
+        self.aggr = pyg.nn.aggr.MeanAggregation()
+        self.redraw_projection = RedrawProjection(
+            self.convs, redraw_interval=1000 if attn_type == "performer" else None
+        )
 
     def forward(self, batch: Data) -> Data:
         """Return updated batch with noise and node type predictions."""
+        self.redraw_projection.redraw_projections()
         x = self.feat_encode(batch.x)
-        x, mask = to_dense_batch(x, batch.batch)
-        pos, _ = to_dense_batch(batch.pos, batch.batch)
-        adj_mat = to_dense_adj(batch.edge_index, batch.batch)
-        out = self.node_encode(x, pos, mask, adj_mat=adj_mat.bool())
-        x = out.type0[mask]
+        pos = self.pos_encode(batch.pos)
+        pe = self.pe_norm(batch.pe)
+        pe = self.pe_encode(batch.pe)
+        x = torch.cat([x, pos, pe], dim=1)
+        for conv in self.convs:
+            x = conv(x, batch.edge_index, batch.batch)
         if self.predict_all:
             batch.type_pred = self.type_pred(x)
         else:
             batch.type_pred = self.type_pred(x[batch.mask])
         batch.noise_pred = self.noise_pred(x)
+        batch.x = x
         return batch
 
     def log_confmat(self):
@@ -102,7 +124,7 @@ class DenoiseModel(LightningModule):
         }
         wandb.log(figs)
 
-    def training_step(self, batch: Data, idx) -> dict:
+    def training_step(self, batch: Data, batch_idx: int) -> dict:
         """Shared step for training and validation."""
         sch = self.lr_schedulers()
         sch.step()
@@ -117,24 +139,20 @@ class DenoiseModel(LightningModule):
             pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x[batch.mask])
             self.confmat.update(batch.type_pred, batch.orig_x[batch.mask])
         loss = noise_loss + self.alpha * pred_loss
-        # acc = accuracy(batch.type_pred, batch.orig_x, task="multiclass")
-        self.log("train/loss", loss, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
-        # self.log(f"{step}/acc", acc, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
-        self.log("train/noise_loss", noise_loss, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
-        self.log("train/pred_loss", pred_loss, on_step=True, on_epoch=True, batch_size=batch.num_graphs)
-        # if self.global_step % 1000 == 0:
-        #     self.log_figs("train")
-        return dict(
-            loss=loss,
-            noise_loss=noise_loss.detach(),
-            pred_loss=pred_loss.detach(),
-            # acc=acc.detach(),
+        acc = metrics.functional.accuracy(batch.type_pred, batch.orig_x, task="multiclass", num_classes=20)
+        self.log_dict(
+            {"train/loss": loss, "train_nose_loss": noise_loss, "train/pred_loss": pred_loss, "train/pred_acc": acc},
+            batch_size=batch.num_graphs,
+            add_dataloader_idx=False,
         )
+        if self.global_step % 1000 == 0:
+            self.log_figs(step="train")
+        return loss
 
-    def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> Data:
-        """Return updated batch with all the information."""
-        batch.x = self.feat_encode(batch.x)
-        batch.edge_attr = self.edge_encode(batch.edge_attr)
-        batch = self.node_encode(batch)
-        batch.aggr_x = self.aggr(batch.x, batch.batch)
-        return batch
+    # def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> Data:
+    #     """Return updated batch with all the information."""
+    #     batch.x = self.feat_encode(batch.x)
+    #     batch.edge_attr = self.edge_encode(batch.edge_attr)
+    #     batch = self.node_encode(batch)
+    #     batch.aggr_x = self.aggr(batch.x, batch.batch)
+    #     return batch

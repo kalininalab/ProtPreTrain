@@ -26,18 +26,17 @@ trainer:
   accelerator: gpu
   precision: bf16-mixed
 model:
-  class_path: DenoiseModel
+  class_path: step.models.DenoiseModel
   init_args:
-    local_module: GAT
-    global_module: Performer
-    hidden_dim: 768
-    num_layers: 16
-    num_heads: 8
-    dropout: 0.1
-    attn_dropout: 0.1
+    hidden_dim: 512
+    pe_dim: 64
+    pos_dim: 64
+    num_layers: 6
+    attn_type: performer
+    dropout: 0.5
     alpha: 1.0
-    weighted_loss: false
-    predict_all: false
+    predict_all: true
+
 data:
   class_path: FoldSeekDataModule
   init_args:
@@ -56,7 +55,10 @@ data:
         init_args:
           r: 7.0
       - class_path: torch_geometric.transforms.ToUndirected
-      - class_path: torch_geometric.transforms.Spherical
+      - class_path: torch_geometric.transforms.AddRandomWalkPE
+        init_args:
+          walk_length: 20
+          attr_name: pe
     num_workers: 10
     shuffle: true
     batch_sampling: true
