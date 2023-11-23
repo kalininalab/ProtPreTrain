@@ -7,8 +7,9 @@ trainer:
       project: step
       log_model: all
       dir: wandb
-      tags: [big]
+      tags: [model0]
   enable_checkpointing: true
+  profiler: pytorch
   callbacks:
     - class_path: ModelCheckpoint
       init_args:
@@ -29,14 +30,13 @@ model:
   class_path: step.models.DenoiseModel
   init_args:
     hidden_dim: 512
-    pe_dim: 64
-    pos_dim: 64
-    num_layers: 6
+    pe_dim: 128
+    pos_dim: 128
+    num_layers: 12
     attn_type: performer
     dropout: 0.5
     alpha: 1.0
     predict_all: true
-
 data:
   class_path: FoldSeekDataModule
   init_args:
@@ -55,14 +55,15 @@ data:
         init_args:
           r: 7.0
       - class_path: torch_geometric.transforms.ToUndirected
-      - class_path: torch_geometric.transforms.AddRandomWalkPE
-        init_args:
-          walk_length: 20
-          attr_name: pe
+      # - class_path: torch_geometric.transforms.AddRandomWalkPE
+      #   init_args:
+      #     walk_length: 20
+      #     attr_name: pe
     num_workers: 10
     shuffle: true
-    batch_sampling: true
-    max_num_nodes: 1024
+    batch_sampling: false
+    batch_size: 4
+    # max_num_nodes: 4096
 optimizer:
   class_path: torch.optim.Adam
   init_args:

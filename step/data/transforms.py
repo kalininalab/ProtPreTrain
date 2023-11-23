@@ -1,8 +1,31 @@
 import random
+from typing import Any
 
+import numpy as np
 import scipy
 import torch
+from torch_geometric.data import Data
 from torch_geometric.transforms import BaseTransform
+from torch_geometric.utils import to_dense_adj
+
+
+class MyWalkPE(BaseTransform):
+    def __init__(self, walk_length: int, attr_name="random_walk_pe"):
+        self.walk_length = walk_length
+        self.attr_name = attr_name
+
+    def forward(self, data: Data) -> Data:
+        adj = to_dense_adj(data.edge_index)[0]
+        row_sums = adj.sum(dim=1, keepdim=True)
+        adj_normalized = adj / row_sums.clamp(min=1)
+        pe_list = [torch.zeros_like(adj).diag()]
+        walk_matrix = adj_normalized
+        for _ in range(self.walk_length - 1):
+            walk_matrix = walk_matrix @ adj_normalized
+            pe_list.append(walk_matrix.diag())
+        pe = torch.stack(pe_list, dim=-1)
+        data[self.attr_name] = pe
+        return data
 
 
 class PosNoise(BaseTransform):
@@ -118,36 +141,7 @@ class SequenceOnly(BaseTransform):
 
 
 class StructureOnly(MaskType):
+    """Mask everything"""
+
     def __init__(self):
         super().__init__(pick_prob=1.0)
-
-
-class SphericalHarmonics(BaseTransform):
-    def __init__(self, degree):
-        self.degree = degree
-
-    def spherical_harmonics(self, coords, degree):
-        r, theta, phi = self.cartesian_to_spherical(coords[:, 0], coords[:, 1], coords[:, 2])
-
-        harmonics = []
-        for m in range(-degree, degree + 1):
-            Y_m_l = [
-                scipy.special.sph_harm(m, degree, phi_i.item(), theta_i.item()) for phi_i, theta_i in zip(phi, theta)
-            ]
-            Y_m_l = torch.tensor(Y_m_l, dtype=torch.complex64)
-            harmonics.append(Y_m_l)
-
-        return torch.stack(harmonics, dim=-1)
-
-    @staticmethod
-    def cartesian_to_spherical(x, y, z):
-        r = torch.sqrt(x**2 + y**2 + z**2)
-        theta = torch.acos(z / r)  # polar angle
-        phi = torch.atan2(y, x)  # azimuthal angle
-        return r, theta, phi
-
-    def __call__(self, data):
-        coords = data.pos
-        harmonics = self.spherical_harmonics(coords, self.degree)
-        data.sph_harmonics = harmonics
-        return data

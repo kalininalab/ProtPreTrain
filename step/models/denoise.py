@@ -86,6 +86,7 @@ class DenoiseModel(LightningModule):
         pos = self.pos_encode(batch.pos)
         pe = self.pe_norm(batch.pe)
         pe = self.pe_encode(batch.pe)
+        pe = torch.zeros_like(pos)
         x = torch.cat([x, pos, pe], dim=1)
         for conv in self.convs:
             x = conv(x, batch.edge_index, batch.batch)
@@ -126,8 +127,8 @@ class DenoiseModel(LightningModule):
 
     def training_step(self, batch: Data, batch_idx: int) -> dict:
         """Shared step for training and validation."""
-        sch = self.lr_schedulers()
-        sch.step()
+        # sch = self.lr_schedulers()
+        # sch.step()
         if self.global_step == 0:
             self.test_batch = batch.clone()
         batch = self.forward(batch)

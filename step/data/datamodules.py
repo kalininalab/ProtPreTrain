@@ -48,7 +48,7 @@ class FoldSeekDataModule(LightningDataModule):
                 max_num=self.max_num_nodes,
                 shuffle=self.shuffle,
                 skip_too_big=True,
-                num_steps=1000000,
+                num_steps=int(2.2e6 / self.max_num_nodes * 300),
             )
             return DataLoader(ds, batch_sampler=sampler, num_workers=self.num_workers)
         else:
