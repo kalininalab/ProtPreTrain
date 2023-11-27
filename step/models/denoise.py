@@ -160,5 +160,5 @@ class DenoiseModel(LightningModule):
         x = torch.cat([x, pos, pe], dim=1)
         for conv in self.convs:
             x = conv(x, batch.edge_index, batch.batch)
-        batch.x = x
+        batch.aggr_x = self.aggr(x, batch.batch)
         return batch

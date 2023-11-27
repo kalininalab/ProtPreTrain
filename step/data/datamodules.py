@@ -208,7 +208,7 @@ class DownstreamDataModule(LightningDataModule):
             data_list = []
             for batch in result:
                 for i in range(len(batch)):
-                    data = Data(x=batch.x[i], y=batch.y[i])
+                    data = Data(x=batch.aggr_x[i], y=batch.y[i])
                     data_list.append(data)
             self._assign_data(split, data_list)
 
