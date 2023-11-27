@@ -16,6 +16,7 @@ trainer:
         mode: min
         dirpath: checkpoints
         save_last: true
+        save_on_train_epoch_end: true
     - class_path: RichProgressBar
     - class_path: RichModelSummary
     - class_path: LearningRateMonitor

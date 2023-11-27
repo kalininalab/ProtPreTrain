@@ -89,6 +89,8 @@ class DownstreamDataModule(LightningDataModule):
         num_workers: int = 8,
         shuffle: bool = True,
         ablation: Literal["none", "sequence", "structure"] = "none",
+        radius: int = 10,
+        walk_length: int = 20,
         **kwargs,
     ):
         super().__init__()
@@ -98,12 +100,19 @@ class DownstreamDataModule(LightningDataModule):
         self.num_workers = num_workers
         self.shuffle = shuffle
         self.ablation = ablation
+        self.radius = radius
+        self.walk_length = walk_length
         self.kwargs = kwargs
 
     def _optional_add_transform(self):
         if self.feature_extract_model_source == "wandb":
             pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
-            transform = T.Compose([T.RadiusGraph(7), T.ToUndirected(), RandomWalkPE(20, "pe")])
+            transform = [T.RadiusGraph(self.radius), T.ToUndirected(), RandomWalkPE(self.walk_length, "pe")]
+            if self.ablation == "sequence":
+                transform = [SequenceOnly()] + transform
+            elif self.ablation == "structure":
+                transform = [StructureOnly()] + transform
+            transform = T.Compose(transform)
         else:
             pre_transform = None
             transform = None

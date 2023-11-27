@@ -77,7 +77,7 @@ class BaseModel(LightningModule):
             optimizer,
             mode="min",
             factor=0.1,
-            patience=20,
+            patience=5,
             min_lr=1e-7,
             verbose=True,
         )
