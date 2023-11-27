@@ -100,6 +100,16 @@ class DownstreamDataModule(LightningDataModule):
         self.ablation = ablation
         self.kwargs = kwargs
 
+    def _optional_add_transform(self):
+        if self.feature_extract_model_source == "wandb":
+            pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
+            transform = T.Compose([T.RadiusGraph(7), T.ToUndirected(), RandomWalkPE(20, "pe")])
+        else:
+            pre_transform = None
+            transform = None
+
+        return transform, pre_transform
+
     def _get_dataloader(self, ds: Dataset) -> DataLoader:
         return DataLoader(ds, **self._dl_kwargs(False))
 
@@ -140,17 +150,7 @@ class DownstreamDataModule(LightningDataModule):
 
     def setup(self, stage: str = None):
         """Load the individual datasets."""
-        if self.feature_extract_model_source == "wandb":
-            pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
-            transform = [T.RadiusGraph(7), T.ToUndirected(), RandomWalkPE(20, "pe")]
-            if self.ablation == "sequence":
-                transform.append(SequenceOnly())
-            elif self.ablation == "structure":
-                transform.append(StructureOnly())
-            transform = T.Compose(transform)
-        else:
-            pre_transform = None
-            transform = None
+        transform, pre_transform = self._optional_add_transform()
         splits = []
         if stage == "fit" or stage is None:
             splits.append("train")
@@ -270,12 +270,7 @@ class HomologyDataModule(DownstreamDataModule):
 
     def setup(self, stage: str = None):
         """Load the individual datasets."""
-        if self.feature_extract_model_source == "wandb":
-            pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
-            transform = T.Compose([T.RadiusGraph(7), T.ToUndirected(), T.Spherical()])
-        else:
-            pre_transform = None
-            transform = None
+        transform, pre_transform = self._optional_add_transform()
         splits = []
         if stage == "fit" or stage is None:
             splits.append("train")

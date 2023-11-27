@@ -10,7 +10,7 @@ from torch_geometric.utils import to_dense_adj
 
 
 class RandomWalkPE(BaseTransform):
-    def __init__(self, walk_length: int, attr_name="random_walk_pe"):
+    def __init__(self, walk_length: int, attr_name: str = "random_walk_pe"):
         self.walk_length = walk_length
         self.attr_name = attr_name
 
