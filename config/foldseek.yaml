@@ -53,7 +53,7 @@ data:
           pick_prob: 0.2
       - class_path: torch_geometric.transforms.RadiusGraph
         init_args:
-          r: 7.0
+          r: 10.0
       - class_path: torch_geometric.transforms.ToUndirected
       - class_path: step.data.transforms.RandomWalkPE
         init_args:
