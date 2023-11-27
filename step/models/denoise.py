@@ -12,17 +12,20 @@ from torchmetrics import ConfusionMatrix
 import wandb
 
 from ..data.parsers import THREE_TO_ONE
-from ..utils import plot_aa_tsne, plot_confmat, plot_node_embeddings
+from ..utils import WarmUpCosineLR, plot_aa_tsne, plot_confmat, plot_node_embeddings
 from .downstream import SimpleMLP
 
 
 class RedrawProjection:
+    """Used for performer stuff"""
+
     def __init__(self, model: torch.nn.Module, redraw_interval: int = None):
         self.model = model
         self.redraw_interval = redraw_interval
         self.num_last_redraw = 0
 
     def redraw_projections(self):
+        """Recalculates projections."""
         if not self.model.training or self.redraw_interval is None:
             return
         if self.num_last_redraw >= self.redraw_interval:
@@ -50,10 +53,12 @@ class DenoiseModel(LightningModule):
         dropout: float = 0.5,
         alpha: float = 1.0,
         predict_all: bool = True,
+        lr: float = 1e-4,
     ):
         super().__init__()
         assert hidden_dim > (pos_dim + pe_dim)
         self.save_hyperparameters()
+        self.lr = lr
         self.alpha = alpha
         self.predict_all = predict_all
         self.feat_encode = torch.nn.Embedding(21, hidden_dim - pos_dim - pe_dim)
@@ -162,3 +167,11 @@ class DenoiseModel(LightningModule):
             x = conv(x, batch.edge_index, batch.batch)
         batch.aggr_x = self.aggr(x, batch.batch)
         return batch
+
+    def configure_optimizers(self) -> Any:
+        """interval is making sure you step after each step, not each epoch"""
+        optim = torch.optim.AdamW(self.parameters(), self.lr)
+        scheduler = WarmUpCosineLR(
+            optim, warmup_steps=10000, start_lr=1e-5, max_lr=self.lr, min_lr=1e-7, cycle_len=1000000
+        )
+        return {"optimizer": optim, "lr_scheduler": {"scheduler": scheduler, "interval": "step"}}
