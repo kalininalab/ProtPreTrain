@@ -150,10 +150,15 @@ class DenoiseModel(LightningModule):
             self.log_figs(step="train")
         return loss
 
-    # def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> Data:
-    #     """Return updated batch with all the information."""
-    #     batch.x = self.feat_encode(batch.x)
-    #     batch.edge_attr = self.edge_encode(batch.edge_attr)
-    #     batch = self.node_encode(batch)
-    #     batch.aggr_x = self.aggr(batch.x, batch.batch)
-    #     return batch
+    def predict_step(self, batch: Any, batch_idx: int) -> Data:
+        """Return updated batch with all the information."""
+        x = self.feat_encode(batch.x)
+        pos = self.pos_encode(batch.pos)
+        pe = self.pe_norm(batch.pe)
+        pe = self.pe_encode(batch.pe)
+        pe = torch.zeros_like(pos)
+        x = torch.cat([x, pos, pe], dim=1)
+        for conv in self.convs:
+            x = conv(x, batch.edge_index, batch.batch)
+        batch.aggr_x = self.aggr(x, batch.batch)
+        return batch

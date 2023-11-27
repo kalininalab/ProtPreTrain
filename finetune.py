@@ -40,6 +40,7 @@ data = {
     feature_extract_model_source=config.model_source,
     num_workers=config.num_workers,
     batch_size=config.batch_size,
+    ablation=config.ablation,
 )
 trainer = pl.Trainer(
     accelerator="gpu",
@@ -52,7 +53,7 @@ trainer = pl.Trainer(
         pl.callbacks.RichProgressBar(),
         pl.callbacks.RichModelSummary(),
         pl.callbacks.LearningRateMonitor(),
-        pl.callbacks.EarlyStopping(monitor="val/loss", patience=50, mode="min"),
+        pl.callbacks.EarlyStopping(monitor="val/loss", patience=10, mode="min"),
     ],
 )
 trainer.fit(model, data)

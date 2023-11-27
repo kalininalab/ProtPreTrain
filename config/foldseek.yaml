@@ -14,8 +14,9 @@ trainer:
       init_args:
         monitor: train/loss
         mode: min
-        every_n_train_steps: 1000
         dirpath: checkpoints
+        save_last: true
+        save_on_train_epoch_end: true
     - class_path: RichProgressBar
     - class_path: RichModelSummary
     - class_path: LearningRateMonitor
@@ -52,7 +53,7 @@ data:
           pick_prob: 0.2
       - class_path: torch_geometric.transforms.RadiusGraph
         init_args:
-          r: 7.0
+          r: 10.0
       - class_path: torch_geometric.transforms.ToUndirected
       - class_path: step.data.transforms.RandomWalkPE
         init_args:

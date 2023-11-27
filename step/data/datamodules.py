@@ -89,6 +89,8 @@ class DownstreamDataModule(LightningDataModule):
         num_workers: int = 8,
         shuffle: bool = True,
         ablation: Literal["none", "sequence", "structure"] = "none",
+        radius: int = 10,
+        walk_length: int = 20,
         **kwargs,
     ):
         super().__init__()
@@ -98,7 +100,24 @@ class DownstreamDataModule(LightningDataModule):
         self.num_workers = num_workers
         self.shuffle = shuffle
         self.ablation = ablation
+        self.radius = radius
+        self.walk_length = walk_length
         self.kwargs = kwargs
+
+    def _optional_add_transform(self):
+        if self.feature_extract_model_source == "wandb":
+            pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
+            transform = [T.RadiusGraph(self.radius), T.ToUndirected(), RandomWalkPE(self.walk_length, "pe")]
+            if self.ablation == "sequence":
+                transform = [SequenceOnly()] + transform
+            elif self.ablation == "structure":
+                transform = [StructureOnly()] + transform
+            transform = T.Compose(transform)
+        else:
+            pre_transform = None
+            transform = None
+
+        return transform, pre_transform
 
     def _get_dataloader(self, ds: Dataset) -> DataLoader:
         return DataLoader(ds, **self._dl_kwargs(False))
@@ -140,17 +159,7 @@ class DownstreamDataModule(LightningDataModule):
 
     def setup(self, stage: str = None):
         """Load the individual datasets."""
-        if self.feature_extract_model_source == "wandb":
-            pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
-            transform = [T.RadiusGraph(7), T.ToUndirected(), RandomWalkPE(20, "pe")]
-            if self.ablation == "sequence":
-                transform.append(SequenceOnly())
-            elif self.ablation == "structure":
-                transform.append(StructureOnly())
-            transform = T.Compose(transform)
-        else:
-            pre_transform = None
-            transform = None
+        transform, pre_transform = self._optional_add_transform()
         splits = []
         if stage == "fit" or stage is None:
             splits.append("train")
@@ -208,7 +217,7 @@ class DownstreamDataModule(LightningDataModule):
             data_list = []
             for batch in result:
                 for i in range(len(batch)):
-                    data = Data(x=batch.x[i], y=batch.y[i])
+                    data = Data(x=batch.aggr_x[i], y=batch.y[i])
                     data_list.append(data)
             self._assign_data(split, data_list)
 
@@ -270,12 +279,7 @@ class HomologyDataModule(DownstreamDataModule):
 
     def setup(self, stage: str = None):
         """Load the individual datasets."""
-        if self.feature_extract_model_source == "wandb":
-            pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
-            transform = T.Compose([T.RadiusGraph(7), T.ToUndirected(), T.Spherical()])
-        else:
-            pre_transform = None
-            transform = None
+        transform, pre_transform = self._optional_add_transform()
         splits = []
         if stage == "fit" or stage is None:
             splits.append("train")
