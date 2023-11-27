@@ -144,7 +144,7 @@ class DenoiseModel(LightningModule):
         else:
             pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x[batch.mask])
             self.confmat.update(batch.type_pred, batch.orig_x[batch.mask])
-        loss = noise_loss + self.alpha * pred_loss
+        loss = noise_loss * self.alpha + (1 - self.alpha) * pred_loss
         acc = metrics.functional.accuracy(batch.type_pred, batch.orig_x, task="multiclass", num_classes=20)
         self.log_dict(
             {"train/loss": loss, "train_nose_loss": noise_loss, "train/pred_loss": pred_loss, "train/pred_acc": acc},

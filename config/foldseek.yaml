@@ -29,10 +29,10 @@ trainer:
 model:
   class_path: step.models.DenoiseModel
   init_args:
-    hidden_dim: 512
+    hidden_dim: 768
     pe_dim: 128
     pos_dim: 128
-    num_layers: 12
+    num_layers: 32
     attn_type: performer
     dropout: 0.5
     alpha: 1.0
@@ -48,7 +48,7 @@ data:
         init_args:
           sigma: 1.0
           plddt_dependent: false
-      - class_path: step.data.MaskType
+      - class_path: step.data.MaskTypeAnkh
         init_args:
           pick_prob: 0.2
       - class_path: torch_geometric.transforms.RadiusGraph

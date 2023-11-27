@@ -1,5 +1,6 @@
 import torch
 from pytorch_lightning.cli import LightningCLI
+
 import wandb
 from step.utils.cli import namespace_to_dict
 

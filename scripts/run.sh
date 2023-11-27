@@ -1,16 +1,16 @@
 #!/bin/bash -l
 
 #SBATCH --account=hai_preprost
-#SBATCH --job-name=test
+#SBATCH --job-name=radius_10
 #SBATCH --partition=booster
 #SBATCH --ntasks-per-node=4
-#SBATCH --ntasks=4
-#SBATCH --nodes=1
+#SBATCH --ntasks=16
+#SBATCH --nodes=4
 #SBATCH --gres=gpu:4
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=0
-#SBATCH --time=0-00:30:00
-#SBATCH --output=test.log
+#SBATCH --time=0-10:00:00
+#SBATCH --signal=SIGUSR1@90
 
 
 export NCCL_DEBUG=INFO
@@ -20,4 +20,4 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3
 
 jutil env activate -p hai_preprost
 conda activate step
-srun -A hai_preprost python train.py --config config/foldseek_clust.yaml
+srun python train.py --config config/foldseek_clust.yaml
