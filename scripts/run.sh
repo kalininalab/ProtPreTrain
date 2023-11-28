@@ -11,6 +11,8 @@
 #SBATCH --mem=0
 #SBATCH --time=0-10:00:00
 #SBATCH --signal=SIGUSR1@90
+#SBATCH --output=logs/out_%j.log
+#SBATCH --error=logs/err_%j.log
 
 
 export NCCL_DEBUG=INFO
