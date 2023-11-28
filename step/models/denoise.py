@@ -54,6 +54,7 @@ class DenoiseModel(LightningModule):
         alpha: float = 1.0,
         predict_all: bool = True,
         lr: float = 1e-4,
+        **kwargs,
     ):
         super(DenoiseModel, self).__init__()
         assert hidden_dim > (pos_dim + pe_dim)

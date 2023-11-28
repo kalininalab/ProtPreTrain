@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 from matplotlib.figure import Figure
 from sklearn.decomposition import PCA
-from umap import UMAP
+from sklearn.manifold import TSNE
 
 from ..data.parsers import aminoacids
 
@@ -65,7 +65,7 @@ def plot_aa_tsne(emb: torch.Tensor):
         width=400,
         height=400,
         size="size",
-        title="AA UMAP",
+        title="AA tsne",
     )
 
 
@@ -158,7 +158,7 @@ def plot_confmat(confmat):
 
 
 def plot_node_embeddings(embeds: torch.Tensor, labels: torch.LongTensor, uniprot_ids: list):
-    """Plot UMAP embeddings of the node embeddings."""
+    """Plot TSNE embeddings of the node embeddings."""
     numbers = []
     cur_prot = uniprot_ids[0]
     i = 0
@@ -170,7 +170,7 @@ def plot_node_embeddings(embeds: torch.Tensor, labels: torch.LongTensor, uniprot
             numbers.append(0)
             i = 1
             cur_prot = prot
-    pca = UMAP(n_components=2)
+    pca = TSNE(n_components=2)
     embedded_nodes = pca.fit_transform(embeds.detach().cpu().numpy())
     embedded_nodes = pd.DataFrame(embedded_nodes, columns=["x", "y"])
     embedded_nodes["name"] = labels.detach().cpu().numpy()
