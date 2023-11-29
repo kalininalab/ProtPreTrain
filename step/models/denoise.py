@@ -78,7 +78,7 @@ class DenoiseModel(LightningModule):
             self.convs.append(conv)
         self.noise_pred = SimpleMLP(hidden_dim, hidden_dim, 3, dropout)
         self.type_pred = SimpleMLP(hidden_dim, hidden_dim, 20, dropout)
-        self.confmat = ConfusionMatrix(task="multiclass", num_classes=20, normalize="true")
+        # self.confmat = ConfusionMatrix(task="multiclass", num_classes=20, normalize="true")
         self.aggr = pyg.nn.aggr.MeanAggregation()
         self.redraw_projection = RedrawProjection(
             self.convs, redraw_interval=1000 if attn_type == "performer" else None
@@ -131,18 +131,12 @@ class DenoiseModel(LightningModule):
 
     def training_step(self, batch: Data, batch_idx: int) -> dict:
         """Shared step for training and validation."""
-        # sch = self.lr_schedulers()
-        # sch.step()
-        # if self.global_step == 0:
-        #     self.test_batch = batch.clone()
         batch = self.forward(batch)
         noise_loss = F.mse_loss(batch.noise_pred, batch.noise)
         if self.predict_all:
             pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x)
-            self.confmat.update(batch.type_pred, batch.orig_x)
         else:
             pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x[batch.mask])
-            self.confmat.update(batch.type_pred, batch.orig_x[batch.mask])
         loss = noise_loss * self.alpha + (1 - self.alpha) * pred_loss
         acc = metrics.functional.accuracy(batch.type_pred, batch.orig_x, task="multiclass", num_classes=20)
         self.log_dict(
@@ -150,8 +144,6 @@ class DenoiseModel(LightningModule):
             batch_size=batch.num_graphs,
             add_dataloader_idx=False,
         )
-        # if self.global_step % 1000 == 0:
-        #     self.log_figs(step="train")
         return loss
 
     def predict_step(self, batch: Any, batch_idx: int) -> Data:
@@ -160,7 +152,6 @@ class DenoiseModel(LightningModule):
         pos = self.pos_encode(batch.pos)
         pe = self.pe_norm(batch.pe)
         pe = self.pe_encode(batch.pe)
-        pe = torch.zeros_like(pos)
         x = torch.cat([x, pos, pe], dim=1)
         for conv in self.convs:
             x = conv(x, batch.edge_index, batch.batch)
