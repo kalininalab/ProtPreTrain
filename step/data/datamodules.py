@@ -4,14 +4,13 @@ from typing import List, Literal
 import ankh
 import torch
 import torch_geometric.transforms as T
+import wandb
 from pytorch_lightning import LightningDataModule, Trainer
 from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader, DynamicBatchSampler
 from torch_geometric.transforms import BaseTransform
 from tqdm import tqdm
 from transformers import pipeline
-
-import wandb
 
 from ..models import DenoiseModel
 from .datasets import FluorescenceDataset, FoldSeekDataset, HomologyDataset, StabilityDataset
@@ -30,6 +29,7 @@ class FoldSeekDataModule(LightningDataModule):
         shuffle: bool = True,
         batch_sampling: bool = False,
         max_num_nodes: int = 0,
+        subset: int = None,
     ):
         super().__init__()
         self.transforms = transforms
@@ -39,6 +39,7 @@ class FoldSeekDataModule(LightningDataModule):
         self.shuffle = shuffle
         self.batch_sampling = batch_sampling
         self.max_num_nodes = max_num_nodes
+        self.subset = subset
 
     def _get_dataloader(self, ds: Dataset) -> DataLoader:
         if self.batch_sampling:
@@ -63,10 +64,16 @@ class FoldSeekDataModule(LightningDataModule):
         """Load the individual datasets."""
         pre_transform = T.Compose(self.pre_transforms)
         transform = T.Compose(self.transforms)
-        self.train = FoldSeekDataset(
-            transform=transform,
-            pre_transform=pre_transform,
-        )
+        if self.subset:
+            self.train = FoldSeekDataset(
+                transform=transform,
+                pre_transform=pre_transform,
+            )[: self.subset]
+        else:
+            self.train = FoldSeekDataset(
+                transform=transform,
+                pre_transform=pre_transform,
+            )
 
     def _dl_kwargs(self, shuffle: bool = False):
         return dict(
