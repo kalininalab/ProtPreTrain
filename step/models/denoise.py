@@ -51,8 +51,9 @@ class DenoiseModel(LightningModule):
         heads: int = 8,
         attn_type: Literal["multihead", "performer"] = "performer",
         dropout: float = 0.5,
-        alpha: float = 1.0,
+        alpha: float = 0.5,
         predict_all: bool = True,
+        walk_length: int = 20,
         lr: float = 1e-4,
         **kwargs,
     ):
@@ -63,9 +64,9 @@ class DenoiseModel(LightningModule):
         self.alpha = alpha
         self.predict_all = predict_all
         self.feat_encode = torch.nn.Embedding(21, hidden_dim - pos_dim - pe_dim)
-        self.pe_encode = torch.nn.Linear(20, pe_dim)
-        self.pe_norm = torch.nn.BatchNorm1d(20)
         self.pos_encode = torch.nn.Linear(3, pos_dim)
+        self.pe_norm = torch.nn.BatchNorm1d(walk_length)
+        self.pe_encode = torch.nn.Linear(walk_length, pe_dim)
         self.convs = torch.nn.ModuleList()
         for _ in range(num_layers):
             nn = torch.nn.Sequential(
@@ -79,7 +80,7 @@ class DenoiseModel(LightningModule):
             self.convs.append(conv)
         self.noise_pred = SimpleMLP(hidden_dim, hidden_dim, 3, dropout)
         self.type_pred = SimpleMLP(hidden_dim, hidden_dim, 20, dropout)
-        self.confmat = ConfusionMatrix(task="multiclass", num_classes=20, normalize="true")
+        # self.confmat = ConfusionMatrix(task="multiclass", num_classes=20, normalize="true")
         self.aggr = pyg.nn.aggr.MeanAggregation()
         self.redraw_projection = RedrawProjection(
             self.convs, redraw_interval=1000 if attn_type == "performer" else None
@@ -91,8 +92,7 @@ class DenoiseModel(LightningModule):
         x = self.feat_encode(batch.x)
         pos = self.pos_encode(batch.pos)
         pe = self.pe_norm(batch.pe)
-        pe = self.pe_encode(batch.pe)
-        pe = torch.zeros_like(pos)
+        pe = self.pe_encode(pe)
         x = torch.cat([x, pos, pe], dim=1)
         for conv in self.convs:
             x = conv(x, batch.edge_index, batch.batch)
@@ -131,29 +131,24 @@ class DenoiseModel(LightningModule):
         }
         wandb.log(figs)
 
-    def training_step(self, batch: Data, batch_idx: int) -> dict:
+    def training_step(self, batch: Data, batch_idx: int, dataloader_idx: int = 0) -> dict:
         """Shared step for training and validation."""
-        # sch = self.lr_schedulers()
-        # sch.step()
-        if self.global_step == 0:
-            self.test_batch = batch.clone()
         batch = self.forward(batch)
         noise_loss = F.mse_loss(batch.noise_pred, batch.noise)
         if self.predict_all:
             pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x)
-            self.confmat.update(batch.type_pred, batch.orig_x)
+            acc = metrics.functional.accuracy(batch.type_pred, batch.orig_x, task="multiclass", num_classes=20)
         else:
             pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x[batch.mask])
-            self.confmat.update(batch.type_pred, batch.orig_x[batch.mask])
+            acc = metrics.functional.accuracy(
+                batch.type_pred, batch.orig_x[batch.mask], task="multiclass", num_classes=20
+            )
         loss = noise_loss * self.alpha + (1 - self.alpha) * pred_loss
-        acc = metrics.functional.accuracy(batch.type_pred, batch.orig_x, task="multiclass", num_classes=20)
         self.log_dict(
-            {"train/loss": loss, "train_nose_loss": noise_loss, "train/pred_loss": pred_loss, "train/pred_acc": acc},
+            {"train/loss": loss, "train_noise_loss": noise_loss, "train/pred_loss": pred_loss, "train/pred_acc": acc},
             batch_size=batch.num_graphs,
             add_dataloader_idx=False,
         )
-        if self.global_step % 1000 == 0:
-            self.log_figs(step="train")
         return loss
 
     def predict_step(self, batch: Any, batch_idx: int) -> Data:
@@ -162,7 +157,6 @@ class DenoiseModel(LightningModule):
         pos = self.pos_encode(batch.pos)
         pe = self.pe_norm(batch.pe)
         pe = self.pe_encode(batch.pe)
-        pe = torch.zeros_like(pos)
         x = torch.cat([x, pos, pe], dim=1)
         for conv in self.convs:
             x = conv(x, batch.edge_index, batch.batch)
