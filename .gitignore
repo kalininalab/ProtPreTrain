@@ -12,3 +12,4 @@ data/*
 logs/
 artifacts/
 checkpoints/
+tmp_scripts/

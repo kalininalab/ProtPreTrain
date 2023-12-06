@@ -5,10 +5,11 @@ import torch
 import torch.nn.functional as F
 import torch_geometric as pyg
 import torchmetrics as metrics
-import wandb
 from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
 from torchmetrics import ConfusionMatrix
+
+import wandb
 
 from ..data.parsers import THREE_TO_ONE
 from ..utils import WarmUpCosineLR, plot_aa_tsne, plot_confmat, plot_node_embeddings
@@ -52,6 +53,7 @@ class DenoiseModel(LightningModule):
         dropout: float = 0.5,
         alpha: float = 0.5,
         predict_all: bool = True,
+        walk_length: int = 20,
         lr: float = 1e-4,
         **kwargs,
     ):
@@ -63,8 +65,8 @@ class DenoiseModel(LightningModule):
         self.predict_all = predict_all
         self.feat_encode = torch.nn.Embedding(21, hidden_dim - pos_dim - pe_dim)
         self.pos_encode = torch.nn.Linear(3, pos_dim)
-        self.pe_norm = torch.nn.BatchNorm1d(20)
-        self.pe_encode = torch.nn.Linear(20, pe_dim)
+        self.pe_norm = torch.nn.BatchNorm1d(walk_length)
+        self.pe_encode = torch.nn.Linear(walk_length, pe_dim)
         self.convs = torch.nn.ModuleList()
         for _ in range(num_layers):
             nn = torch.nn.Sequential(
@@ -90,7 +92,7 @@ class DenoiseModel(LightningModule):
         x = self.feat_encode(batch.x)
         pos = self.pos_encode(batch.pos)
         pe = self.pe_norm(batch.pe)
-        pe = self.pe_encode(batch.pe)
+        pe = self.pe_encode(pe)
         x = torch.cat([x, pos, pe], dim=1)
         for conv in self.convs:
             x = conv(x, batch.edge_index, batch.batch)
@@ -129,16 +131,19 @@ class DenoiseModel(LightningModule):
         }
         wandb.log(figs)
 
-    def training_step(self, batch: Data, batch_idx: int) -> dict:
+    def training_step(self, batch: Data, batch_idx: int, dataloader_idx: int = 0) -> dict:
         """Shared step for training and validation."""
         batch = self.forward(batch)
         noise_loss = F.mse_loss(batch.noise_pred, batch.noise)
         if self.predict_all:
             pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x)
+            acc = metrics.functional.accuracy(batch.type_pred, batch.orig_x, task="multiclass", num_classes=20)
         else:
             pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x[batch.mask])
+            acc = metrics.functional.accuracy(
+                batch.type_pred, batch.orig_x[batch.mask], task="multiclass", num_classes=20
+            )
         loss = noise_loss * self.alpha + (1 - self.alpha) * pred_loss
-        acc = metrics.functional.accuracy(batch.type_pred, batch.orig_x, task="multiclass", num_classes=20)
         self.log_dict(
             {"train/loss": loss, "train_noise_loss": noise_loss, "train/pred_loss": pred_loss, "train/pred_acc": acc},
             batch_size=batch.num_graphs,
