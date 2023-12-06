@@ -47,7 +47,7 @@ datamodule = FoldSeekDataModule(
         masktype_transform[args.masktype](args.maskfrac),
         pyg.transforms.RadiusGraph(args.radius),
         pyg.transforms.ToUndirected(),
-        RandomWalkPE(args.walk_length),
+        pyg.transforms.AddRandomWalkPE(args.walk_length, name="pe"),
     ],
     pre_transforms=[pyg.transforms.Center(), pyg.transforms.NormalizeRotation()],
     batch_sampling=args.batch_sampling,

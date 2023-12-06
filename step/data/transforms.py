@@ -7,12 +7,14 @@ from torch_geometric.utils import to_dense_adj
 
 
 class RandomWalkPE(BaseTransform):
+    """Random walk dense version."""
+
     def __init__(self, walk_length: int, attr_name: str = "pe"):
         self.walk_length = walk_length
         self.attr_name = attr_name
 
     def forward(self, data: Data) -> Data:
-        adj = to_dense_adj(data.edge_index)[0]
+        adj = to_dense_adj(data.edge_index, max_num_nodes=data.x.size(0)).squeeze(0)
         row_sums = adj.sum(dim=1, keepdim=True)
         adj_normalized = adj / row_sums.clamp(min=1)
         pe_list = [torch.zeros_like(adj).diag()]

@@ -15,7 +15,7 @@ import wandb
 
 from ..models import DenoiseModel
 from .datasets import FluorescenceDataset, FoldSeekDataset, HomologyDataset, StabilityDataset
-from .transforms import RandomWalkPE, SequenceOnly, StructureOnly
+from .transforms import SequenceOnly, StructureOnly
 
 
 class FoldSeekDataModule(LightningDataModule):
@@ -107,7 +107,7 @@ class DownstreamDataModule(LightningDataModule):
     def _optional_add_transform(self):
         if self.feature_extract_model_source == "wandb":
             pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
-            transform = [T.RadiusGraph(self.radius), T.ToUndirected(), RandomWalkPE(self.walk_length, "pe")]
+            transform = [T.RadiusGraph(self.radius), T.ToUndirected(), T.AddRandomWalkPE(self.walk_length, "pe")]
             if self.ablation == "sequence":
                 transform = [SequenceOnly()] + transform
             elif self.ablation == "structure":
