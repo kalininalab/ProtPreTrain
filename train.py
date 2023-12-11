@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+from step.utils import str_to_bool
 
 parser = ArgumentParser()
 parser.add_argument("--hidden_dim", type=int, default=512)
@@ -8,13 +9,13 @@ parser.add_argument("--num_layers", type=int, default=12)
 parser.add_argument("--attn_type", type=str, default="performer")
 parser.add_argument("--dropout", type=float, default=0.5)
 parser.add_argument("--alpha", type=float, default=0.5)
-parser.add_argument("--predict_all", type=bool, default=1)
+parser.add_argument("--predict_all", type=str_to_bool, default=True)
 parser.add_argument("--posnoise", type=float, default=1.0)
 parser.add_argument("--masktype", type=str, default="normal", choices=["normal", "ankh", "bert"])
 parser.add_argument("--maskfrac", type=float, default=0.15)
 parser.add_argument("--radius", type=int, default=10)
 parser.add_argument("--walk_length", type=int, default=20)
-parser.add_argument("--batch_sampling", type=bool, default=0)
+parser.add_argument("--batch_sampling", type=str_to_bool, default=False)
 parser.add_argument("--max_num_nodes", type=int, default=4096, help="Max num nodes in a dynamic batch")
 parser.add_argument("--batch_size", type=int, default=32)
 parser.add_argument("--max_epochs", type=int, default=10)
@@ -43,11 +44,11 @@ model = DenoiseModel(**config)
 masktype_transform = {"normal": MaskType, "ankh": MaskTypeAnkh, "bert": MaskTypeBERT}
 datamodule = FoldSeekDataModule(
     transforms=[
-        PosNoise(args.posnoise),
-        masktype_transform[args.masktype](args.maskfrac),
         pyg.transforms.RadiusGraph(args.radius),
         pyg.transforms.ToUndirected(),
         pyg.transforms.AddRandomWalkPE(args.walk_length, name="pe"),
+        PosNoise(args.posnoise),
+        masktype_transform[args.masktype](args.maskfrac),
     ],
     pre_transforms=[pyg.transforms.Center(), pyg.transforms.NormalizeRotation()],
     batch_sampling=args.batch_sampling,
@@ -79,8 +80,8 @@ trainer = pl.Trainer(
             monitor="train/loss",
             mode="min",
             dirpath=f"checkpoints/{run.id}",
-            save_last=True,
-            save_on_train_epoch_end=True,
+            # save_last=True,
+            # save_on_train_epoch_end=True,
         ),
         pl.callbacks.LearningRateMonitor(logging_interval="step"),
         pl.callbacks.RichProgressBar(),

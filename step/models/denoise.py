@@ -145,9 +145,10 @@ class DenoiseModel(LightningModule):
             )
         loss = noise_loss * self.alpha + (1 - self.alpha) * pred_loss
         self.log_dict(
-            {"train/loss": loss, "train_noise_loss": noise_loss, "train/pred_loss": pred_loss, "train/pred_acc": acc},
+            {"train/loss": loss, "train/noise_loss": noise_loss, "train/pred_loss": pred_loss, "train/pred_acc": acc},
             batch_size=batch.num_graphs,
             add_dataloader_idx=False,
+            on_step=True, on_epoch=True,
         )
         return loss
 
