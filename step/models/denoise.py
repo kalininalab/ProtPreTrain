@@ -80,7 +80,6 @@ class DenoiseModel(LightningModule):
             self.convs.append(conv)
         self.noise_pred = SimpleMLP(hidden_dim, hidden_dim, 3, dropout)
         self.type_pred = SimpleMLP(hidden_dim, hidden_dim, 20, dropout)
-        # self.confmat = ConfusionMatrix(task="multiclass", num_classes=20, normalize="true")
         self.aggr = pyg.nn.aggr.MeanAggregation()
         self.redraw_projection = RedrawProjection(
             self.convs, redraw_interval=1000 if attn_type == "performer" else None
@@ -145,9 +144,11 @@ class DenoiseModel(LightningModule):
             )
         loss = noise_loss * self.alpha + (1 - self.alpha) * pred_loss
         self.log_dict(
-            {"train/loss": loss, "train_noise_loss": noise_loss, "train/pred_loss": pred_loss, "train/pred_acc": acc},
+            {"train/loss": loss, "train/noise_loss": noise_loss, "train/pred_loss": pred_loss, "train/pred_acc": acc},
             batch_size=batch.num_graphs,
             add_dataloader_idx=False,
+            on_step=True,
+            on_epoch=True,
         )
         return loss
 
@@ -167,6 +168,6 @@ class DenoiseModel(LightningModule):
         """interval is making sure you step after each step, not each epoch"""
         optim = torch.optim.AdamW(self.parameters(), self.lr)
         scheduler = WarmUpCosineLR(
-            optim, warmup_steps=10000, start_lr=1e-5, max_lr=self.lr, min_lr=1e-7, cycle_len=1000000
+            optim, warmup_steps=10000, start_lr=1e-5, max_lr=self.lr, min_lr=1e-7, cycle_len=100000
         )
         return {"optimizer": optim, "lr_scheduler": {"scheduler": scheduler, "interval": "step"}}
