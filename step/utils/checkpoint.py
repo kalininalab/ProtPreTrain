@@ -1,4 +1,5 @@
 import pytorch_lightning as pl
+
 import wandb
 
 
@@ -18,4 +19,3 @@ class WandbArtifactModelCheckpoint(pl.callbacks.ModelCheckpoint):
             )
             artifact.add_file(filepath)
             self.wandb_run.log_artifact(artifact)
-            # print(f"Logged {checkpoint_path} as a W&B artifact.")

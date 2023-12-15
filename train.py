@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+
 from step.utils import str_to_bool
 
 parser = ArgumentParser()
@@ -46,7 +47,7 @@ datamodule = FoldSeekDataModule(
     transforms=[
         pyg.transforms.RadiusGraph(args.radius),
         pyg.transforms.ToUndirected(),
-        pyg.transforms.AddRandomWalkPE(args.walk_length, name="pe"),
+        RandomWalkPE(args.walk_length, attr_name="pe"),
         PosNoise(args.posnoise),
         masktype_transform[args.masktype](args.maskfrac),
     ],
@@ -71,7 +72,7 @@ trainer = pl.Trainer(
     accelerator="gpu",
     max_epochs=args.max_epochs,
     precision="bf16-mixed",
-    strategy="ddp",
+    strategy="auto",
     devices=-1,
     num_nodes=args.num_nodes,
     callbacks=[
@@ -80,8 +81,7 @@ trainer = pl.Trainer(
             monitor="train/loss",
             mode="min",
             dirpath=f"checkpoints/{run.id}",
-            # save_last=True,
-            # save_on_train_epoch_end=True,
+            save_on_train_epoch_end=True,
         ),
         pl.callbacks.LearningRateMonitor(logging_interval="step"),
         pl.callbacks.RichProgressBar(),
