@@ -20,6 +20,7 @@ sample_string = """
 #SBATCH --error=logs/%j.err
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3
+export NCCL_SOCKET_IFNAME=ib3,ib2,ib1,ib0
 
 jutil env activate -p hai_preprost
 conda activate step
@@ -57,6 +58,7 @@ def generate_config_permutations(input_dict: dict) -> tuple[list[dict], list[str
 
 
 def config_to_str(d: dict) -> str:
+    """From config generate argparse cli arguments"""
     res = ""
     for k, v in d.items():
         res += f" --{k} {v}"
