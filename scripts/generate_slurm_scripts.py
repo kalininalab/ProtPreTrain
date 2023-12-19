@@ -18,11 +18,12 @@ sample_string = """
 #SBATCH --signal=SIGUSR1@90
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.err
+jutil env activate -p hai_preprost
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 export NCCL_SOCKET_IFNAME=ib3,ib2,ib1,ib0
+export WANDB_DIR=$SCRATCH/wandb
 
-jutil env activate -p hai_preprost
 conda activate step
 srun python train.py""".strip()
 

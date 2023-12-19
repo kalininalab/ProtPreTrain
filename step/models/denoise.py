@@ -149,6 +149,7 @@ class DenoiseModel(LightningModule):
             add_dataloader_idx=False,
             on_step=True,
             on_epoch=True,
+            sync_dist=True,
         )
         return loss
 
