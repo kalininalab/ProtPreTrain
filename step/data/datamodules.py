@@ -145,7 +145,7 @@ class DownstreamDataModule(LightningDataModule):
         artifact = wandb.run.use_artifact(self.feature_extract_model, type="model")
         artifact_dir = artifact.download()
         p = Path(artifact_dir)
-        p = p / [p.glob("*.ckpt")][0]
+        p = [x for x in p.glob("*.ckpt")][0]
         model = DenoiseModel.load_from_checkpoint(p)
         model.eval()
         return model
