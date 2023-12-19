@@ -17,5 +17,5 @@ class WandbArtifactModelCheckpoint(pl.callbacks.ModelCheckpoint):
                 type="model",
                 metadata=dict(trainer.callback_metrics),
             )
-            artifact.add_file(filepath)
+            artifact.add_file(filepath, name="model.ckpt")
             self.wandb_run.log_artifact(artifact)

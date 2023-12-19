@@ -4,13 +4,14 @@ from typing import List, Literal
 import ankh
 import torch
 import torch_geometric.transforms as T
-import wandb
 from pytorch_lightning import LightningDataModule, Trainer
 from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader, DynamicBatchSampler
 from torch_geometric.transforms import BaseTransform
 from tqdm import tqdm
 from transformers import pipeline
+
+import wandb
 
 from ..models import DenoiseModel
 from .datasets import FluorescenceDataset, FoldSeekDataset, HomologyDataset, StabilityDataset
@@ -143,7 +144,9 @@ class DownstreamDataModule(LightningDataModule):
     def _load_wandb_model(self):
         artifact = wandb.run.use_artifact(self.feature_extract_model, type="model")
         artifact_dir = artifact.download()
-        model = DenoiseModel.load_from_checkpoint(Path(artifact_dir) / "model.ckpt")
+        p = Path(artifact_dir)
+        p = p / [p.glob("*.ckpt")][0]
+        model = DenoiseModel.load_from_checkpoint(p)
         model.eval()
         return model
 
