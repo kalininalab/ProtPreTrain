@@ -9,11 +9,9 @@ import pandas as pd
 import torch
 from joblib import Parallel, delayed
 from torch_geometric.data import Data, InMemoryDataset, OnDiskDataset, extract_tar
-from tqdm import tqdm
 from tqdm.auto import tqdm
 
 import wandb
-from step.data.parsers import ProtStructure
 
 from .parsers import ProtStructure
 from .utils import apply_edits, compute_edits
@@ -45,26 +43,27 @@ class FoldSeekDataset(OnDiskDataset):
 
     @property
     def raw_file_names(self):
-        return ["afdb_rep_v4", "afdb_rep_v4.dbtype", "afdb_rep_v4.index", "afdb_rep_v4.lookup", "afdb_rep_v4.source"]
+        return ["afdb_rep_v4" + x for x in self._db_extensions]
+
+    @property
+    def _db_extensions(self):
+        """Extensions of the files that make up the foldcomp database."""
+        return ["", ".dbtype", ".index", ".lookup", ".source"]
 
     def download(self):
-        os.makedirs("data/foldseek/raw", exist_ok=True)
+        """Download the database using foldcomp.setup."""
         current_dir = os.getcwd()
         os.chdir(self.raw_dir)
-        foldcomp.setup(self.raw_paths[0])
+        foldcomp.setup(self.raw_file_names[0])
         os.chdir(current_dir)
-
-    def __len__(self) -> int:
-        print(self.raw_paths[0])
-        with foldcomp.open(self.raw_paths[0]) as db:
-            return len(db)
 
     def get_chunks(self):
         """Break the original fold database into chunks."""
         nchunks = self.num_workers
         tmp_id_filename = f"{self.processed_dir}/tmp_id_list.txt"
 
-        n = self.__len__()
+        with foldcomp.open(self.raw_paths[0]) as db:
+            n = len(db)
 
         for chunk in range(nchunks):
             with open(tmp_id_filename, "w") as f:
@@ -75,8 +74,6 @@ class FoldSeekDataset(OnDiskDataset):
                     "mmseqs",
                     "createsubdb",
                     "--subdb-mode",
-                    "0",
-                    "--id-mode",
                     "0",
                     tmp_id_filename,
                     self.raw_paths[0],
@@ -91,8 +88,8 @@ class FoldSeekDataset(OnDiskDataset):
         with foldcomp.open(chunk_file) as db:
             data_list = []
 
-            for idx, (name, pdb) in tqdm(enumerate(db), position=chunk, total=len(db), leave=True):
-                if " " in name or len(ProtStructure(pdb)) > 1022:
+            for idx, (name, pdb) in tqdm(enumerate(db), position=chunk, total=len(db), desc=f"Process {chunk}"):
+                if len(ProtStructure(pdb)) > 1022:
                     continue
                 data = Data(**ProtStructure(pdb).get_graph())
                 data.uniprot_id = name.split("-")[1] if len(name.split("-")) >= 2 else name
@@ -100,11 +97,13 @@ class FoldSeekDataset(OnDiskDataset):
                     data = self._pre_transform(data)
                 data_list.append(data.to_dict())
 
-                if idx + 1 == len(db) or (idx + 1) % 1000 == 0:
+                if len(data_list) >= self.chunk_size:
                     torch.save(data_list, f"{self.processed_dir}/data/data_{chunk}_{idx}.pt")
                     data_list = []
+            torch.save(data_list, f"{self.processed_dir}/data/data_{chunk}_{idx}.pt")
 
     def process(self) -> None:
+        """Process the whole dataset for the dataset."""
         os.makedirs(f"{self.processed_dir}/chunks", exist_ok=True)
         os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
         print("Chunking database...")
@@ -119,7 +118,7 @@ class FoldSeekDataset(OnDiskDataset):
     def merge_batches(self):
         """Once all chunks are processed, merge them into a single database."""
         p = Path(self.processed_dir) / "data"
-        batches_list = [x for x in p.glob("data_*.pt")]
+        batches_list = [x for x in p.glob("data*.pt")]
         i = 0
         for batch_file in tqdm(batches_list, total=len(batches_list), leave=True):
             data_list = torch.load(batch_file)
@@ -133,29 +132,23 @@ class FoldSeekDataset(OnDiskDataset):
         shutil.rmtree(p / "data")
 
     def serialize(self, data: Dict) -> Dict[str, Any]:
-        return dict(
-            x=data["x"], edge_index=data["edge_index"], uniprot_id=data["uniprot_id"], pe=data["pe"], pos=data["pos"]
-        )
+        """To dict method for the database."""
+        return data
 
     def deserialize(self, data: Dict[str, Any]) -> Data:
+        """From dict method for the database."""
         return Data.from_dict(data)
 
 
 class FoldSeekDatasetSmall(FoldSeekDataset):
-    def __init__(
-        self,
-        root: str = "data/foldseek_small/",
-        transform: Optional[Callable] = None,
-        pre_transform: Optional[Callable] = None,
-        backend: str = "sqlite",
-        num_workers: int = 1,
-        chunk_size: int = 10000,
-    ) -> None:
-        super().__init__(root, transform, pre_transform, backend, num_workers, chunk_size)
+    """Small version of the FoldSeek dataset (just e_coli). Used for debugging."""
+
+    def __init__(self, root: str = "data/foldseek_small/", *args, **kwargs) -> None:
+        super().__init__(root=root, *args, **kwargs)
 
     @property
     def raw_file_names(self):
-        return ["e_coli", "e_coli.dbtype", "e_coli.index", "e_coli.lookup", "e_coli.source"]
+        return ["e_coli" + x for x in self._db_extensions]
 
 
 class DownstreamDataset(InMemoryDataset):
@@ -170,6 +163,7 @@ class DownstreamDataset(InMemoryDataset):
         self.data, self.slices = torch.load(self.processed_paths[self.splits[split]])
 
     def download(self):
+        """Download the dataset from wandb."""
         artifact = wandb.use_artifact(self.wandb_name, type="dataset")
         artifact_dir = artifact.download(self.raw_dir)
         extract_tar(str(Path(artifact_dir) / "dataset.tar.gz"), self.raw_dir)

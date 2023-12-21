@@ -19,7 +19,7 @@ ds = FoldSeekDatasetSmall(
         ]
     ),
     num_workers=4,
-    chunk_size=512,
+    chunk_size=256,
 )
 ds = FoldSeekDatasetSmall(
     pre_transform=T.Compose(
@@ -31,7 +31,5 @@ ds = FoldSeekDatasetSmall(
             RandomWalkPE(20, "pe"),
         ]
     ),
-    num_workers=4,
-    chunk_size=512,
 )
-print(ds[0])
+print(len(ds))
