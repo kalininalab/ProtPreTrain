@@ -14,12 +14,14 @@ from transformers import pipeline
 import wandb
 
 from ..models import DenoiseModel
-from .datasets import FluorescenceDataset, FoldSeekDataset, HomologyDataset, StabilityDataset
+from .datasets import FluorescenceDataset, FoldSeekDataset, FoldSeekDatasetSmall, HomologyDataset, StabilityDataset
 from .transforms import RandomWalkPE, SequenceOnly, StructureOnly
 
 
 class FoldSeekDataModule(LightningDataModule):
     """Base data module, contains all the datasets for train, val and test."""
+
+    dataset_class = FoldSeekDataset
 
     def __init__(
         self,
@@ -51,9 +53,8 @@ class FoldSeekDataModule(LightningDataModule):
                 max_num=self.max_num_nodes,
                 shuffle=self.shuffle,
                 skip_too_big=True,
-                num_steps=int(2.2e6 / self.max_num_nodes * 200),
             )
-            return DataLoader(ds, batch_sampler=sampler, num_workers=self.num_workers)
+            return DataLoader(ds, batch_sampler=sampler, num_workers=self.num_workers, pin_memory=True)
         else:
             return DataLoader(ds, **self._dl_kwargs(False))
 
@@ -65,7 +66,7 @@ class FoldSeekDataModule(LightningDataModule):
         """Load the individual datasets."""
         pre_transform = T.Compose(self.pre_transforms)
         transform = T.Compose(self.transforms)
-        self.train = FoldSeekDataset(
+        self.train = self.dataset_class(
             transform=transform,
             pre_transform=pre_transform,
             num_workers=self.num_workers,
@@ -78,7 +79,12 @@ class FoldSeekDataModule(LightningDataModule):
             batch_size=self.batch_size,
             shuffle=self.shuffle if shuffle else False,
             num_workers=self.num_workers,
+            # pin_memory=True,
         )
+
+
+class FoldSeekDataModuleSmall(FoldSeekDataModule):
+    dataset_class = FoldSeekDatasetSmall
 
 
 class DownstreamDataModule(LightningDataModule):
