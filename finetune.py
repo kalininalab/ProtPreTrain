@@ -9,8 +9,9 @@ from step.data import FluorescenceDataModule, HomologyDataModule, StabilityDataM
 from step.models import HomologyModel, RegressionModel
 
 # Ignore all deprecation warnings
-warnings.filterwarnings("ignore")
 torch.set_float32_matmul_precision("medium")
+torch.multiprocessing.set_sharing_strategy("file_system")
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability", "homology"])

@@ -65,16 +65,13 @@ class FoldSeekDataModule(LightningDataModule):
         """Load the individual datasets."""
         pre_transform = T.Compose(self.pre_transforms)
         transform = T.Compose(self.transforms)
+        self.train = FoldSeekDataset(
+            transform=transform,
+            pre_transform=pre_transform,
+            num_workers=self.num_workers,
+        )
         if self.subset:
-            self.train = FoldSeekDataset(
-                transform=transform,
-                pre_transform=pre_transform,
-            )[: self.subset]
-        else:
-            self.train = FoldSeekDataset(
-                transform=transform,
-                pre_transform=pre_transform,
-            )
+            self.train = self.train[: self.subset]
 
     def _dl_kwargs(self, shuffle: bool = False):
         return dict(

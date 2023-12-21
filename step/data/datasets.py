@@ -1,78 +1,161 @@
 import os
+import shutil
+import subprocess
 from pathlib import Path
-from typing import Callable, List
+from typing import Any, Callable, Dict, List, Optional
 
 import foldcomp
 import pandas as pd
 import torch
-from torch_geometric.data import Data, Dataset, InMemoryDataset, extract_tar
+from joblib import Parallel, delayed
+from torch_geometric.data import Data, InMemoryDataset, OnDiskDataset, extract_tar
 from tqdm import tqdm
+from tqdm.auto import tqdm
 
 import wandb
+from step.data.parsers import ProtStructure
 
 from .parsers import ProtStructure
 from .utils import apply_edits, compute_edits
 
 
-class FoldSeekDataset(Dataset):
-    """
-    Dataset for pre-training.
-    """
+class FoldSeekDataset(OnDiskDataset):
+    """Save FoldSeekDB as a PyTorch Geometric dataset, using the on-disk format."""
 
-    def __init__(self, root: str = "data/foldseek", transform: Callable = None, pre_transform: Callable = None):
-        super().__init__(root, transform, pre_transform)
-
-    def process(self):
-        """Convert proteins from foldcomp database into graphs."""
-        idx = 0
-        with foldcomp.open(self.raw_paths[0]) as db:
-            for name, pdb in tqdm(db):
-                if " " in name:
-                    continue
-                pdb = ProtStructure(pdb)
-                if len(pdb) > 1022:
-                    continue
-                data = Data(**pdb.get_graph())
-                split = name.split("-")
-                if len(split) >= 2:
-                    data.uniprot_id = split[1]
-                else:
-                    data.uniprot_id = name
-                if self.pre_transform is not None:
-                    data = self.pre_transform(data)
-                torch.save(data, os.path.join(self.processed_dir, f"data_{idx}.pt"))
-                idx += 1
-
-    def get(self, idx):
-        """Get graph by index."""
-        data = torch.load(os.path.join(self.processed_dir, f"data_{idx}.pt"))
-        return data
-
-    def len(self):
-        """Number of graphs in the dataset."""
-        return 2240576
+    def __init__(
+        self,
+        root: str = "data/foldseek/",
+        transform: Optional[Callable] = None,
+        pre_transform: Optional[Callable] = None,
+        backend: str = "sqlite",
+        num_workers: int = 1,
+        chunk_size: int = 10000,
+    ) -> None:
+        self._pre_transform = pre_transform
+        self.num_workers = num_workers
+        self.chunk_size = chunk_size
+        schema = {
+            "x": {"dtype": torch.int64, "size": (-1,)},
+            "edge_index": {"dtype": torch.int64, "size": (2, -1)},
+            "uniprot_id": str,
+            "pe": {"dtype": torch.float32, "size": (-1, 20)},
+            "pos": {"dtype": torch.float32, "size": (-1, 3)},
+        }
+        super().__init__(root, transform, backend=backend, schema=schema)
 
     @property
     def raw_file_names(self):
-        """The foldseek db."""
         return ["afdb_rep_v4", "afdb_rep_v4.dbtype", "afdb_rep_v4.index", "afdb_rep_v4.lookup", "afdb_rep_v4.source"]
 
-    @property
-    def processed_file_names(self):
-        """All generated filenames."""
-        return [f"data_{i}.pt" for i in range(0, self.len(), 1000)]
+    def download(self):
+        os.makedirs("data/foldseek/raw", exist_ok=True)
+        current_dir = os.getcwd()
+        os.chdir(self.raw_dir)
+        foldcomp.setup(self.raw_paths[0])
+        os.chdir(current_dir)
+
+    def __len__(self) -> int:
+        print(self.raw_paths[0])
+        with foldcomp.open(self.raw_paths[0]) as db:
+            return len(db)
+
+    def get_chunks(self):
+        """Break the original fold database into chunks."""
+        nchunks = self.num_workers
+        tmp_id_filename = f"{self.processed_dir}/tmp_id_list.txt"
+
+        n = self.__len__()
+
+        for chunk in range(nchunks):
+            with open(tmp_id_filename, "w") as f:
+                for i in range(chunk * n // nchunks, (chunk + 1) * n // nchunks):
+                    f.write(f"{i}\n")
+            subprocess.run(
+                [
+                    "mmseqs",
+                    "createsubdb",
+                    "--subdb-mode",
+                    "0",
+                    "--id-mode",
+                    "0",
+                    tmp_id_filename,
+                    self.raw_paths[0],
+                    f"{self.processed_dir}/chunks/chunk_{chunk}",
+                ]
+            )
+        os.remove(tmp_id_filename)
+
+    def process_chunk(self, chunk: int):
+        """Process a single chunk of the database. This is done in parallel."""
+        chunk_file = f"{self.processed_dir}/chunks/chunk_{chunk}"
+        with foldcomp.open(chunk_file) as db:
+            data_list = []
+
+            for idx, (name, pdb) in tqdm(enumerate(db), position=chunk, total=len(db), leave=True):
+                if " " in name or len(ProtStructure(pdb)) > 1022:
+                    continue
+                data = Data(**ProtStructure(pdb).get_graph())
+                data.uniprot_id = name.split("-")[1] if len(name.split("-")) >= 2 else name
+                if self._pre_transform:
+                    data = self._pre_transform(data)
+                data_list.append(data.to_dict())
+
+                if idx + 1 == len(db) or (idx + 1) % 1000 == 0:
+                    torch.save(data_list, f"{self.processed_dir}/data/data_{chunk}_{idx}.pt")
+                    data_list = []
+
+    def process(self) -> None:
+        os.makedirs(f"{self.processed_dir}/chunks", exist_ok=True)
+        os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
+        print("Chunking database...")
+        self.get_chunks()
+        print("Processing chunks in parallel...")
+        Parallel(n_jobs=self.num_workers)(delayed(self.process_chunk)(chunk) for chunk in range(self.num_workers))
+        print("Merging batches...")
+        self.merge_batches()
+        print("Cleaning up...")
+        self.clean()
+
+    def merge_batches(self):
+        """Once all chunks are processed, merge them into a single database."""
+        p = Path(self.processed_dir) / "data"
+        batches_list = [x for x in p.glob("data_*.pt")]
+        i = 0
+        for batch_file in tqdm(batches_list, total=len(batches_list), leave=True):
+            data_list = torch.load(batch_file)
+            self.db.multi_insert(range(i, i + len(data_list)), data_list)
+            i += len(data_list)
+
+    def clean(self):
+        """Remove the temporary files."""
+        p = Path(self.processed_dir)
+        shutil.rmtree(p / "chunks")
+        shutil.rmtree(p / "data")
+
+    def serialize(self, data: Dict) -> Dict[str, Any]:
+        return dict(
+            x=data["x"], edge_index=data["edge_index"], uniprot_id=data["uniprot_id"], pe=data["pe"], pos=data["pos"]
+        )
+
+    def deserialize(self, data: Dict[str, Any]) -> Data:
+        return Data.from_dict(data)
 
 
-class FoldSeekSmallDataset(FoldSeekDataset):
-    """For debugging, only E. Coli."""
+class FoldSeekDatasetSmall(FoldSeekDataset):
+    def __init__(
+        self,
+        root: str = "data/foldseek_small/",
+        transform: Optional[Callable] = None,
+        pre_transform: Optional[Callable] = None,
+        backend: str = "sqlite",
+        num_workers: int = 1,
+        chunk_size: int = 10000,
+    ) -> None:
+        super().__init__(root, transform, pre_transform, backend, num_workers, chunk_size)
 
     @property
     def raw_file_names(self):
         return ["e_coli", "e_coli.dbtype", "e_coli.index", "e_coli.lookup", "e_coli.source"]
-
-    def len(self):
-        """Number of graphs in the dataset."""
-        return 8726
 
 
 class DownstreamDataset(InMemoryDataset):
