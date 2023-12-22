@@ -1,7 +1,7 @@
 import pytorch_lightning as pl
 import torch_geometric.transforms as T
 
-from step.data import FoldSeekDataModuleSmall, MaskType, PosNoise, RandomWalkPE
+from step.data import FoldSeekDataModule, FoldSeekDataModuleSmall, MaskType, PosNoise, RandomWalkPE
 from step.models import DenoiseModel
 
 dm = FoldSeekDataModuleSmall(

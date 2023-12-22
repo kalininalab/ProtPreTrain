@@ -60,31 +60,20 @@ class FoldSeekDataset(OnDiskDataset):
     def get_chunks(self):
         """Break the original fold database into chunks."""
         nchunks = self.num_workers
-        tmp_id_filename = f"{self.processed_dir}/tmp_id_list.txt"
-
-        with foldcomp.open(self.raw_paths[0]) as db:
-            n = len(db)
-
-        for chunk in range(nchunks):
-            with open(tmp_id_filename, "w") as f:
-                for i in range(chunk * n // nchunks, (chunk + 1) * n // nchunks):
-                    f.write(f"{i}\n")
-            subprocess.run(
-                [
-                    "mmseqs",
-                    "createsubdb",
-                    "--subdb-mode",
-                    "0",
-                    tmp_id_filename,
-                    self.raw_paths[0],
-                    f"{self.processed_dir}/chunks/chunk_{chunk}",
-                ]
-            )
-        os.remove(tmp_id_filename)
+        subprocess.run(
+            [
+                "mmseqs",
+                "splitdb",
+                "--split",
+                f"{nchunks}",
+                self.raw_paths[0],
+                f"{self.processed_dir}/chunks/chunk",
+            ]
+        )
 
     def process_chunk(self, chunk: int):
         """Process a single chunk of the database. This is done in parallel."""
-        chunk_file = f"{self.processed_dir}/chunks/chunk_{chunk}"
+        chunk_file = f"{self.processed_dir}/chunks/chunk_{chunk}_{self.num_workers}"
         with foldcomp.open(chunk_file) as db:
             data_list = []
 
