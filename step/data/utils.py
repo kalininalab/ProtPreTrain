@@ -1,3 +1,4 @@
+import re
 from typing import List, Tuple
 
 import Levenshtein
@@ -43,3 +44,15 @@ def apply_edits(protein: Data, edit_operations: List[Tuple[str, int, str]]) -> D
             mutant.x = delete_row(mutant.x, idx)
             mutant.pos = delete_row(mutant.pos, idx)
     return mutant
+
+
+def extract_uniprot_id(title: str) -> str:
+    """Extract the UniProt ID from a foldcomp name."""
+    pattern1 = r"\(([A-Z0-9]{6,})\)"
+    if " " in title:
+        match1 = re.search(pattern1, title)
+        return match1.group(1)
+    elif title.startswith("AF-"):
+        return title.split("-")[1]
+    else:
+        raise ValueError(f"Title '{title}' does not match any pattern.")

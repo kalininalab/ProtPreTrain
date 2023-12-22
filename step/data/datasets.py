@@ -14,7 +14,7 @@ from tqdm.auto import tqdm
 import wandb
 
 from .parsers import ProtStructure
-from .utils import apply_edits, compute_edits
+from .utils import apply_edits, compute_edits, extract_uniprot_id
 
 
 class FoldSeekDataset(OnDiskDataset):
@@ -92,7 +92,7 @@ class FoldSeekDataset(OnDiskDataset):
                 if len(ProtStructure(pdb)) > 1022:
                     continue
                 data = Data(**ProtStructure(pdb).get_graph())
-                data.uniprot_id = name.split("-")[1] if len(name.split("-")) >= 2 else name
+                data.uniprot_id = extract_uniprot_id(name)
                 if self._pre_transform:
                     data = self._pre_transform(data)
                 data_list.append(data.to_dict())
@@ -119,11 +119,9 @@ class FoldSeekDataset(OnDiskDataset):
         """Once all chunks are processed, merge them into a single database."""
         p = Path(self.processed_dir) / "data"
         batches_list = [x for x in p.glob("data*.pt")]
-        i = 0
         for batch_file in tqdm(batches_list, total=len(batches_list), leave=True):
             data_list = torch.load(batch_file)
-            self.db.multi_insert(range(i, i + len(data_list)), data_list)
-            i += len(data_list)
+            self.extend(data_list)
 
     def clean(self):
         """Remove the temporary files."""

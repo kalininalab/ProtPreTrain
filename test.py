@@ -13,9 +13,9 @@ dm = FoldSeekDataModuleSmall(
         RandomWalkPE(20, "pe"),
     ],
     transforms=[MaskType(0.15), PosNoise(1.0)],
-    num_workers=1,
+    num_workers=4,
     batch_sampling=False,
-    batch_size=2,
+    batch_size=32,
     # max_num_nodes=2048,
 )
 dm.setup()
@@ -26,5 +26,5 @@ batch = next(iter(dl))
 
 model = DenoiseModel(hidden_dim=16, pe_dim=4, pos_dim=4, num_layers=4, heads=4)
 
-trainer = pl.Trainer(accelerator="cpu", devices=1, strategy="auto")
+trainer = pl.Trainer(accelerator="gpu", devices=1, strategy="auto", logger=False)
 trainer.fit(model, datamodule=dm)
