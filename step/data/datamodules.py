@@ -5,8 +5,9 @@ import ankh
 import torch
 import torch_geometric.transforms as T
 from pytorch_lightning import LightningDataModule, Trainer
+from torch.utils.data import RandomSampler, SequentialSampler
 from torch_geometric.data import Data, Dataset
-from torch_geometric.loader import DataLoader, DynamicBatchSampler
+from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import BaseTransform
 from tqdm import tqdm
 from transformers import pipeline
@@ -15,6 +16,7 @@ import wandb
 
 from ..models import DenoiseModel
 from .datasets import FluorescenceDataset, FoldSeekDataset, FoldSeekDatasetSmall, HomologyDataset, StabilityDataset
+from .samplers import DynamicBatchSampler
 from .transforms import RandomWalkPE, SequenceOnly, StructureOnly
 
 
@@ -47,14 +49,24 @@ class FoldSeekDataModule(LightningDataModule):
     def _get_dataloader(self, ds: Dataset) -> DataLoader:
         if self.batch_sampling:
             assert self.max_num_nodes > 0
-            sampler = DynamicBatchSampler(
+            if self.shuffle:
+                sampler = RandomSampler(ds)
+            else:
+                sampler = SequentialSampler(ds)
+            batch_sampler = DynamicBatchSampler(
                 ds,
+                sampler,
                 mode="node",
                 max_num=self.max_num_nodes,
-                shuffle=self.shuffle,
                 skip_too_big=True,
+                num_steps=len(ds),
             )
-            return DataLoader(ds, batch_sampler=sampler, num_workers=self.num_workers, pin_memory=True)
+            return DataLoader(
+                ds,
+                batch_sampler=batch_sampler,
+                num_workers=self.num_workers,
+                pin_memory=True,
+            )
         else:
             return DataLoader(ds, **self._dl_kwargs(False))
 
@@ -79,7 +91,7 @@ class FoldSeekDataModule(LightningDataModule):
             batch_size=self.batch_size,
             shuffle=self.shuffle if shuffle else False,
             num_workers=self.num_workers,
-            # pin_memory=True,
+            pin_memory=True,
         )
 
 
@@ -118,7 +130,11 @@ class DownstreamDataModule(LightningDataModule):
     def _optional_add_transform(self):
         if self.feature_extract_model_source == "wandb":
             pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
-            transform = [T.RadiusGraph(self.radius), T.ToUndirected(), RandomWalkPE(self.walk_length, "pe")]
+            transform = [
+                T.RadiusGraph(self.radius),
+                T.ToUndirected(),
+                RandomWalkPE(self.walk_length, "pe"),
+            ]
             if self.ablation == "sequence":
                 transform = [SequenceOnly()] + transform
             elif self.ablation == "structure":
@@ -158,7 +174,11 @@ class DownstreamDataModule(LightningDataModule):
         if self.feature_extract_model_source == "wandb":
             return self._load_wandb_model()
         elif self.feature_extract_model_source == "huggingface":
-            return pipeline("feature-extraction", model=self.feature_extract_model, device=0)
+            return pipeline(
+                "feature-extraction",
+                model=self.feature_extract_model,
+                device=0,
+            )
         elif self.feature_extract_model_source == "ankh":
             if self.feature_extract_model == "ankh-base":
                 model, tokenizer = ankh.load_base_model()
@@ -221,7 +241,12 @@ class DownstreamDataModule(LightningDataModule):
             self.test = data_list
 
     def _embed_with_wandb(self, splits: List[str]) -> List[Data]:
-        trainer = Trainer(callbacks=[], logger=False, accelerator="gpu", precision="bf16-mixed")
+        trainer = Trainer(
+            callbacks=[],
+            logger=False,
+            accelerator="gpu",
+            precision="bf16-mixed",
+        )
         model = self.load_pretrained_model()
         for split in splits:
             dl = self._get_dataloader(getattr(self, split))
@@ -263,7 +288,8 @@ class DownstreamDataModule(LightningDataModule):
                 )
                 with torch.no_grad():
                     embeddings = model(
-                        input_ids=outputs["input_ids"].to("cuda"), attention_mask=outputs["attention_mask"].to("cuda")
+                        input_ids=outputs["input_ids"].to("cuda"),
+                        attention_mask=outputs["attention_mask"].to("cuda"),
                     )
                 x = embeddings["last_hidden_state"][0].squeeze(0).mean(dim=0).cpu()
                 y = i.y
@@ -311,13 +337,22 @@ class HomologyDataModule(DownstreamDataModule):
         if stage == "test" or stage is None:
             splits += ["test_fold", "test_family", "test_superfamily"]
             self.test_fold = self.dataset_class(
-                "test_fold", transform=transform, pre_transform=pre_transform, **self.kwargs
+                "test_fold",
+                transform=transform,
+                pre_transform=pre_transform,
+                **self.kwargs,
             )
             self.test_superfamily = self.dataset_class(
-                "test_superfamily", transform=transform, pre_transform=pre_transform, **self.kwargs
+                "test_superfamily",
+                transform=transform,
+                pre_transform=pre_transform,
+                **self.kwargs,
             )
             self.test_family = self.dataset_class(
-                "test_family", transform=transform, pre_transform=pre_transform, **self.kwargs
+                "test_family",
+                transform=transform,
+                pre_transform=pre_transform,
+                **self.kwargs,
             )
         if self.feature_extract_model_source == "wandb":
             self._embed_with_wandb(splits)
