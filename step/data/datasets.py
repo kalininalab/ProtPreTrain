@@ -27,7 +27,7 @@ class FoldSeekDataset(OnDiskDataset):
         pre_transform: Optional[Callable] = None,
         backend: str = "sqlite",
         num_workers: int = 1,
-        chunk_size: int = 10000,
+        chunk_size: int = 1024,
     ) -> None:
         self._pre_transform = pre_transform
         self.num_workers = num_workers
@@ -52,6 +52,7 @@ class FoldSeekDataset(OnDiskDataset):
 
     def download(self):
         """Download the database using foldcomp.setup."""
+        print("Downloading database...")
         current_dir = os.getcwd()
         os.chdir(self.raw_dir)
         foldcomp.setup(self.raw_file_names[0])
@@ -77,7 +78,15 @@ class FoldSeekDataset(OnDiskDataset):
         with foldcomp.open(chunk_file) as db:
             data_list = []
 
-            for idx, (name, pdb) in tqdm(enumerate(db), position=chunk, total=len(db), desc=f"Process {chunk}"):
+            for idx, (name, pdb) in tqdm(
+                enumerate(db),
+                position=chunk,
+                total=len(db),
+                desc=f"Process {chunk}",
+                smoothing=0.0,
+                leave=False,
+                mininterval=1.0,
+            ):
                 if len(ProtStructure(pdb)) > 1022:
                     continue
                 data = Data(**ProtStructure(pdb).get_graph())
