@@ -4,7 +4,7 @@ import torch_geometric.transforms as T
 from step.data import FoldSeekDataModule, FoldSeekDataModuleSmall, MaskType, PosNoise, RandomWalkPE
 from step.models import DenoiseModel
 
-dm = FoldSeekDataModuleSmall(
+dm = FoldSeekDataModule(
     pre_transforms=[
         T.Center(),
         T.NormalizeRotation(),
