@@ -1,4 +1,6 @@
+import os
 import re
+from pathlib import Path
 from typing import List, Tuple
 
 import Levenshtein
@@ -56,3 +58,10 @@ def extract_uniprot_id(title: str) -> str:
         return title.split("-")[1]
     else:
         raise ValueError(f"Title '{title}' does not match any pattern.")
+
+
+def save_file(data_list: list, filename: str):
+    """While file is saving call in .tmp file, then rename to original filename."""
+    temp_filename = Path(filename).with_suffix(".tmp")
+    torch.save(data_list, temp_filename)
+    os.rename(temp_filename, filename)

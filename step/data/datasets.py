@@ -1,6 +1,8 @@
 import os
 import shutil
 import subprocess
+import time
+from multiprocessing import Event, Process
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -14,7 +16,7 @@ from tqdm.auto import tqdm
 import wandb
 
 from .parsers import ProtStructure
-from .utils import apply_edits, compute_edits, extract_uniprot_id
+from .utils import apply_edits, compute_edits, extract_uniprot_id, save_file
 
 
 class FoldSeekDataset(OnDiskDataset):
@@ -27,7 +29,7 @@ class FoldSeekDataset(OnDiskDataset):
         pre_transform: Optional[Callable] = None,
         backend: str = "sqlite",
         num_workers: int = 1,
-        chunk_size: int = 10000,
+        chunk_size: int = 1024,
     ) -> None:
         self._pre_transform = pre_transform
         self.num_workers = num_workers
@@ -52,6 +54,7 @@ class FoldSeekDataset(OnDiskDataset):
 
     def download(self):
         """Download the database using foldcomp.setup."""
+        print("Downloading database...")
         current_dir = os.getcwd()
         os.chdir(self.raw_dir)
         foldcomp.setup(self.raw_file_names[0])
@@ -71,25 +74,48 @@ class FoldSeekDataset(OnDiskDataset):
             ]
         )
 
-    def process_chunk(self, chunk: int):
+    @staticmethod
+    def process_chunk(chunk: int, num_workers: int, processed_dir: str, pre_transform: Callable, chunk_size: int):
         """Process a single chunk of the database. This is done in parallel."""
-        chunk_file = f"{self.processed_dir}/chunks/chunk_{chunk}_{self.num_workers}"
+        chunk_file = f"{processed_dir}/chunks/chunk_{chunk}_{num_workers}"
         with foldcomp.open(chunk_file) as db:
             data_list = []
 
-            for idx, (name, pdb) in tqdm(enumerate(db), position=chunk, total=len(db), desc=f"Process {chunk}"):
+            for idx, (name, pdb) in tqdm(
+                enumerate(db),
+                position=chunk,
+                total=len(db),
+                desc=f"Process {chunk}",
+                smoothing=0.0,
+                leave=True,
+                mininterval=1.0,
+            ):
                 if len(ProtStructure(pdb)) > 1022:
                     continue
-                data = Data(**ProtStructure(pdb).get_graph())
+                data = Data.from_dict(ProtStructure(pdb).get_graph())
                 data.uniprot_id = extract_uniprot_id(name)
-                if self._pre_transform:
-                    data = self._pre_transform(data)
+                if pre_transform:
+                    data = pre_transform(data)
                 data_list.append(data.to_dict())
 
-                if len(data_list) >= self.chunk_size:
-                    torch.save(data_list, f"{self.processed_dir}/data/data_{chunk}_{idx}.pt")
+                if len(data_list) >= chunk_size:
+                    torch.save(data_list, f"{processed_dir}/data/data_{chunk}_{idx}.pt")
                     data_list = []
-            torch.save(data_list, f"{self.processed_dir}/data/data_{chunk}_{idx}.pt")
+            save_file(data_list, f"{processed_dir}/data/data_{chunk}_{idx}.pt")
+
+    def monitor_data_folder(self, stop_event: Event):
+        """Monitor the data folder and update the database."""
+        data_dir = Path(self.processed_dir) / "data"
+        while not stop_event.is_set():
+            for data_file in data_dir.glob("data*.pt"):
+                if data_file.is_file():
+                    try:
+                        data_list = torch.load(data_file)
+                        self.extend(data_list)
+                        data_file.unlink()
+                    except Exception as e:
+                        print(e)
+            time.sleep(1)
 
     def process(self) -> None:
         """Process the whole dataset for the dataset."""
@@ -97,10 +123,26 @@ class FoldSeekDataset(OnDiskDataset):
         os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
         print("Chunking database...")
         self.get_chunks()
+        print("Launching monitoring process...")
+        stop_event = Event()
+        monitor_process = Process(target=self.monitor_data_folder, args=(stop_event,))
+        monitor_process.start()
         print("Processing chunks in parallel...")
-        Parallel(n_jobs=self.num_workers)(delayed(self.process_chunk)(chunk) for chunk in range(self.num_workers))
-        print("Merging batches...")
-        self.merge_batches()
+        Parallel(n_jobs=self.num_workers)(
+            delayed(self.process_chunk)(
+                chunk,
+                self.num_workers,
+                self.processed_dir,
+                self._pre_transform,
+                self.chunk_size,
+            )
+            for chunk in range(self.num_workers)
+        )
+        time.sleep(2)
+        stop_event.set()
+        monitor_process.join()
+        # print("\nMerging batches...")
+        # self.merge_batches()
         print("Cleaning up...")
         self.clean()
 
