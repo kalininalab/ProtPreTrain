@@ -23,7 +23,6 @@ ds = FoldSeekDataset(
     ),
     num_workers=12,
     chunk_size=1000,
-    gpu_pre_transform=True,
 )
 
 print(len(ds))

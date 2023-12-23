@@ -31,12 +31,10 @@ class FoldSeekDataset(OnDiskDataset):
         backend: str = "sqlite",
         num_workers: int = 1,
         chunk_size: int = 1024,
-        gpu_pre_transform: bool = True,
     ) -> None:
         self._pre_transform = pre_transform
         self.num_workers = num_workers
         self.chunk_size = chunk_size
-        self.gpu_pre_transform = gpu_pre_transform
         schema = {
             "x": {"dtype": torch.int64, "size": (-1,)},
             "edge_index": {"dtype": torch.int64, "size": (2, -1)},
@@ -98,10 +96,7 @@ class FoldSeekDataset(OnDiskDataset):
                 data = Data.from_dict(ProtStructure(pdb).get_graph())
                 data.uniprot_id = extract_uniprot_id(name)
                 if self._pre_transform:
-                    if self.gpu_pre_transform:
-                        data = self._pre_transform(data.to("cuda")).to("cpu")
-                    else:
-                        data = self._pre_transform(data)
+                    data = self._pre_transform(data)
                 data_list.append(data.to_dict())
 
                 if len(data_list) >= self.chunk_size:
