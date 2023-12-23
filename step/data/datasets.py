@@ -13,7 +13,6 @@ import torch
 from joblib import Parallel, delayed
 from torch_geometric.data import Data, InMemoryDataset, OnDiskDataset, extract_tar
 from tqdm.auto import tqdm
-from viztracer import VizTracer
 
 import wandb
 

@@ -11,7 +11,7 @@ from step.models import DenoiseModel
 if os.path.exists("data/foldseek_small/processed"):
     shutil.rmtree("data/foldseek_small/processed")
 
-ds = FoldSeekDatasetSmall(
+ds = FoldSeekDataset(
     pre_transform=T.Compose(
         [
             T.Center(),
@@ -21,9 +21,9 @@ ds = FoldSeekDatasetSmall(
             RandomWalkPE(20, "pe"),
         ]
     ),
-    num_workers=8,
-    chunk_size=500,
-    gpu_pre_transform=False,
+    num_workers=12,
+    chunk_size=1000,
+    gpu_pre_transform=True,
 )
 
 print(len(ds))
