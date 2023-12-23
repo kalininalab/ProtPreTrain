@@ -4,12 +4,12 @@ import sys
 import pytorch_lightning as pl
 import torch_geometric.transforms as T
 
-from step.data import FoldSeekDatasetSmall, RandomWalkPE
+from step.data import FoldSeekDataset, FoldSeekDatasetSmall, RandomWalkPE
 from step.models import DenoiseModel
 
-shutil.rmtree("data/foldseek_small/processed")
+# shutil.rmtree("data/foldseek_small/processed")
 
-ds = FoldSeekDatasetSmall(
+ds = FoldSeekDataset(
     pre_transform=T.Compose(
         [
             T.Center(),
