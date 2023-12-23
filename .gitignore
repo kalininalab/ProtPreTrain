@@ -6,6 +6,8 @@
 __*__/
 *egg-info*
 *.out
+*.tsv
+*.csv
 wandb/
 data/*
 *.ipynb

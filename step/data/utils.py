@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import List, Tuple
 
@@ -65,3 +66,16 @@ def save_file(data_list: list, filename: str):
     temp_filename = Path(filename).with_suffix(".tmp")
     torch.save(data_list, temp_filename)
     os.rename(temp_filename, filename)
+
+
+def replace_symlinks_with_copies(directory):
+    """Replace symlinks with copies of the actual files."""
+    for filename in os.listdir(directory):
+        file_path = os.path.join(directory, filename)
+        if os.path.islink(file_path):
+            # Resolve the symlink
+            real_file = os.readlink(file_path)
+            # Remove the symlink
+            os.remove(file_path)
+            # Copy the actual file
+            shutil.copy2(real_file, file_path)

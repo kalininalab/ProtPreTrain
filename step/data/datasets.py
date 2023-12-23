@@ -16,7 +16,7 @@ from tqdm.auto import tqdm
 import wandb
 
 from .parsers import ProtStructure
-from .utils import apply_edits, compute_edits, extract_uniprot_id, save_file
+from .utils import apply_edits, compute_edits, extract_uniprot_id, replace_symlinks_with_copies, save_file
 
 
 class FoldSeekDataset(OnDiskDataset):
@@ -73,6 +73,7 @@ class FoldSeekDataset(OnDiskDataset):
                 f"{self.processed_dir}/chunks/chunk",
             ]
         )
+        replace_symlinks_with_copies(f"{self.processed_dir}/chunks")
 
     @staticmethod
     def process_chunk(chunk: int, num_workers: int, processed_dir: str, pre_transform: Callable, chunk_size: int):

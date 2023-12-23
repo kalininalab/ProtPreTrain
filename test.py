@@ -1,4 +1,5 @@
 import shutil
+import sys
 
 import pytorch_lightning as pl
 import torch_geometric.transforms as T
@@ -18,7 +19,7 @@ ds = FoldSeekDatasetSmall(
             RandomWalkPE(20, "pe"),
         ]
     ),
-    num_workers=8,
+    num_workers=int(sys.argv[1]),
     chunk_size=1000,
 )
 
