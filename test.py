@@ -21,7 +21,7 @@ ds = FoldSeekDataset(
             RandomWalkPE(20, "pe"),
         ]
     ),
-    num_workers=12,
+    num_workers=14,
     chunk_size=1000,
 )
 
