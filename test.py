@@ -1,3 +1,4 @@
+import os
 import shutil
 import sys
 
@@ -7,20 +8,22 @@ import torch_geometric.transforms as T
 from step.data import FoldSeekDataset, FoldSeekDatasetSmall, RandomWalkPE
 from step.models import DenoiseModel
 
-# shutil.rmtree("data/foldseek_small/processed")
+if os.path.exists("data/foldseek_small/processed"):
+    shutil.rmtree("data/foldseek_small/processed")
 
-ds = FoldSeekDataset(
+ds = FoldSeekDatasetSmall(
     pre_transform=T.Compose(
         [
             T.Center(),
             T.NormalizeRotation(),
             T.RadiusGraph(10),
             T.ToUndirected(),
-            RandomWalkPE(20, "pe", cuda=True),
+            RandomWalkPE(20, "pe"),
         ]
     ),
-    num_workers=int(sys.argv[1]),
-    chunk_size=1000,
+    num_workers=8,
+    chunk_size=500,
+    gpu_pre_transform=False,
 )
 
 print(len(ds))

@@ -32,10 +32,12 @@ class FoldSeekDataset(OnDiskDataset):
         backend: str = "sqlite",
         num_workers: int = 1,
         chunk_size: int = 1024,
+        gpu_pre_transform: bool = True,
     ) -> None:
         self._pre_transform = pre_transform
         self.num_workers = num_workers
         self.chunk_size = chunk_size
+        self.gpu_pre_transform = gpu_pre_transform
         schema = {
             "x": {"dtype": torch.int64, "size": (-1,)},
             "edge_index": {"dtype": torch.int64, "size": (2, -1)},
@@ -77,10 +79,9 @@ class FoldSeekDataset(OnDiskDataset):
         )
         replace_symlinks_with_copies(f"{self.processed_dir}/chunks")
 
-    @staticmethod
-    def process_chunk(chunk: int, num_workers: int, processed_dir: str, pre_transform: Callable, chunk_size: int):
+    def process_chunk(self, chunk: int):
         """Process a single chunk of the database. This is done in parallel."""
-        chunk_file = f"{processed_dir}/chunks/chunk_{chunk}_{num_workers}"
+        chunk_file = f"{self.processed_dir}/chunks/chunk_{chunk}_{self.num_workers}"
         with foldcomp.open(chunk_file) as db:
             data_list = []
 
@@ -97,14 +98,17 @@ class FoldSeekDataset(OnDiskDataset):
                     continue
                 data = Data.from_dict(ProtStructure(pdb).get_graph())
                 data.uniprot_id = extract_uniprot_id(name)
-                if pre_transform:
-                    data = pre_transform(data)
+                if self._pre_transform:
+                    if self.gpu_pre_transform:
+                        data = self._pre_transform(data.to("cuda")).to("cpu")
+                    else:
+                        data = self._pre_transform(data)
                 data_list.append(data.to_dict())
 
-                if len(data_list) >= chunk_size:
-                    torch.save(data_list, f"{processed_dir}/data/data_{chunk}_{idx}.pt")
+                if len(data_list) >= self.chunk_size:
+                    save_file(data_list, f"{self.processed_dir}/data/data_{chunk}_{idx}.pt")
                     data_list = []
-            save_file(data_list, f"{processed_dir}/data/data_{chunk}_{idx}.pt")
+            save_file(data_list, f"{self.processed_dir}/data/data_{chunk}_{idx}.pt")
 
     def monitor_data_folder(self, stop_event: Event):
         """Monitor the data folder and update the database."""
@@ -112,12 +116,9 @@ class FoldSeekDataset(OnDiskDataset):
         while not stop_event.is_set():
             for data_file in data_dir.glob("data*.pt"):
                 if data_file.is_file():
-                    try:
-                        data_list = torch.load(data_file)
-                        self.extend(data_list)
-                        data_file.unlink()
-                    except Exception:
-                        pass
+                    data_list = torch.load(data_file)
+                    self.extend(data_list)
+                    data_file.unlink()
             time.sleep(1)
 
     def process(self) -> None:
@@ -131,16 +132,7 @@ class FoldSeekDataset(OnDiskDataset):
         monitor_process = Process(target=self.monitor_data_folder, args=(stop_event,))
         monitor_process.start()
         print("Processing chunks in parallel...")
-        Parallel(n_jobs=self.num_workers)(
-            delayed(self.process_chunk)(
-                chunk,
-                self.num_workers,
-                self.processed_dir,
-                self._pre_transform,
-                self.chunk_size,
-            )
-            for chunk in range(self.num_workers)
-        )
+        Parallel(n_jobs=self.num_workers)(delayed(self.process_chunk)(chunk) for chunk in range(self.num_workers))
         time.sleep(2)
         stop_event.set()
         monitor_process.join()
