@@ -1,3 +1,4 @@
+import contextlib
 import os
 import shutil
 import subprocess
@@ -12,6 +13,7 @@ import torch
 from joblib import Parallel, delayed
 from torch_geometric.data import Data, InMemoryDataset, OnDiskDataset, extract_tar
 from tqdm.auto import tqdm
+from viztracer import VizTracer
 
 import wandb
 
@@ -114,8 +116,8 @@ class FoldSeekDataset(OnDiskDataset):
                         data_list = torch.load(data_file)
                         self.extend(data_list)
                         data_file.unlink()
-                    except Exception as e:
-                        print(e)
+                    except Exception:
+                        pass
             time.sleep(1)
 
     def process(self) -> None:

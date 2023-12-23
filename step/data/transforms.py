@@ -9,22 +9,25 @@ from torch_geometric.utils import to_dense_adj
 class RandomWalkPE(BaseTransform):
     """Random walk dense version."""
 
-    def __init__(self, walk_length: int, attr_name: str = "pe"):
+    def __init__(self, walk_length: int, attr_name: str = "pe", cuda: bool = False):
         self.walk_length = walk_length
         self.attr_name = attr_name
+        self.cuda = cuda
 
     def forward(self, data: Data) -> Data:
+        if self.cuda:
+            data = data.to("cuda")
         adj = to_dense_adj(data.edge_index, max_num_nodes=data.x.size(0)).squeeze(0)
         row_sums = adj.sum(dim=1, keepdim=True)
-        adj_normalized = adj / row_sums.clamp(min=1)
+        adj = adj / row_sums.clamp(min=1)
         pe_list = [torch.zeros_like(adj).diag()]
-        walk_matrix = adj_normalized
+        walk_matrix = adj
         for _ in range(self.walk_length - 1):
-            walk_matrix = walk_matrix @ adj_normalized
+            walk_matrix = walk_matrix @ adj
             pe_list.append(walk_matrix.diag())
         pe = torch.stack(pe_list, dim=-1)
         data[self.attr_name] = pe
-        return data
+        return data.to("cpu")
 
 
 class PosNoise(BaseTransform):

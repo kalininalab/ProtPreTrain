@@ -16,7 +16,7 @@ ds = FoldSeekDatasetSmall(
             T.NormalizeRotation(),
             T.RadiusGraph(10),
             T.ToUndirected(),
-            RandomWalkPE(20, "pe"),
+            RandomWalkPE(20, "pe", cuda=True),
         ]
     ),
     num_workers=int(sys.argv[1]),
