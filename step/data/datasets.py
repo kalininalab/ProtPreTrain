@@ -20,18 +20,19 @@ from .parsers import ProtStructure
 from .utils import apply_edits, compute_edits, extract_uniprot_id, replace_symlinks_with_copies, save_file
 
 
-class FoldSeekDataset(OnDiskDataset):
+class FoldCompDataset(OnDiskDataset):
     """Save FoldSeekDB as a PyTorch Geometric dataset, using the on-disk format."""
 
     def __init__(
         self,
-        root: str = "data/foldseek/",
+        db_name: str = "afdb_rep_v4",
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         backend: str = "sqlite",
         num_workers: int = 1,
         chunk_size: int = 1024,
     ) -> None:
+        self.db_name = db_name
         self._pre_transform = pre_transform
         self.num_workers = num_workers
         self.chunk_size = chunk_size
@@ -42,11 +43,11 @@ class FoldSeekDataset(OnDiskDataset):
             "pe": {"dtype": torch.float32, "size": (-1, 20)},
             "pos": {"dtype": torch.float32, "size": (-1, 3)},
         }
-        super().__init__(root, transform, backend=backend, schema=schema)
+        super().__init__(root=f"data/{db_name}", transform=transform, backend=backend, schema=schema)
 
     @property
     def raw_file_names(self):
-        return ["afdb_rep_v4" + x for x in self._db_extensions]
+        return [self.db_name + x for x in self._db_extensions]
 
     @property
     def _db_extensions(self):
@@ -148,17 +149,6 @@ class FoldSeekDataset(OnDiskDataset):
     def deserialize(self, data: Dict[str, Any]) -> Data:
         """From dict method for the database."""
         return Data.from_dict(data)
-
-
-class FoldSeekDatasetSmall(FoldSeekDataset):
-    """Small version of the FoldSeek dataset (just e_coli). Used for debugging."""
-
-    def __init__(self, root: str = "data/foldseek_small/", *args, **kwargs) -> None:
-        super().__init__(root=root, *args, **kwargs)
-
-    @property
-    def raw_file_names(self):
-        return ["e_coli" + x for x in self._db_extensions]
 
 
 class DownstreamDataset(InMemoryDataset):

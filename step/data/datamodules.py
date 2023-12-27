@@ -15,18 +15,17 @@ from transformers import pipeline
 import wandb
 
 from ..models import DenoiseModel
-from .datasets import FluorescenceDataset, FoldSeekDataset, FoldSeekDatasetSmall, HomologyDataset, StabilityDataset
+from .datasets import FluorescenceDataset, FoldCompDataset, HomologyDataset, StabilityDataset
 from .samplers import DynamicBatchSampler
 from .transforms import RandomWalkPE, SequenceOnly, StructureOnly
 
 
-class FoldSeekDataModule(LightningDataModule):
+class FoldCompDataModule(LightningDataModule):
     """Base data module, contains all the datasets for train, val and test."""
-
-    dataset_class = FoldSeekDataset
 
     def __init__(
         self,
+        db_name: str = "afdb_rep_v4",
         transforms: List[BaseTransform] = [],
         pre_transforms: List[BaseTransform] = [],
         batch_size: int = 128,
@@ -37,6 +36,7 @@ class FoldSeekDataModule(LightningDataModule):
         subset: int = None,
     ):
         super().__init__()
+        self.db_name = db_name
         self.transforms = transforms
         self.pre_transforms = pre_transforms
         self.batch_size = batch_size
@@ -78,7 +78,8 @@ class FoldSeekDataModule(LightningDataModule):
         """Load the individual datasets."""
         pre_transform = T.Compose(self.pre_transforms)
         transform = T.Compose(self.transforms)
-        self.train = self.dataset_class(
+        self.train = FoldCompDataset(
+            db_name=self.db_name,
             transform=transform,
             pre_transform=pre_transform,
             num_workers=self.num_workers,
@@ -93,10 +94,6 @@ class FoldSeekDataModule(LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=True,
         )
-
-
-class FoldSeekDataModuleSmall(FoldSeekDataModule):
-    dataset_class = FoldSeekDatasetSmall
 
 
 class DownstreamDataModule(LightningDataModule):
