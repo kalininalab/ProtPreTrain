@@ -1,17 +1,15 @@
 import os
 import shutil
-import sys
 
-import pytorch_lightning as pl
 import torch_geometric.transforms as T
 
-from step.data import FoldSeekDataset, FoldSeekDatasetSmall, RandomWalkPE
-from step.models import DenoiseModel
+from step.data import FoldCompDataset, RandomWalkPE
 
 if os.path.exists("data/foldseek_small/processed"):
     shutil.rmtree("data/foldseek_small/processed")
 
-ds = FoldSeekDataset(
+ds = FoldCompDataset(
+    db_name="e_coli",
     pre_transform=T.Compose(
         [
             T.Center(),
