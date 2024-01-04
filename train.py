@@ -40,6 +40,13 @@ torch.set_float32_matmul_precision("medium")
 torch.multiprocessing.set_sharing_strategy("file_system")
 pl.seed_everything(42)
 config = vars(args)
+logger = pl.loggers.WandbLogger(
+    project="step",
+    entity="rindti",
+    settings=wandb.Settings(start_method="fork"),
+    config=config,
+    log_model=False,
+)
 
 model = DenoiseModel(**config)
 masktype_transform = {"normal": MaskType, "ankh": MaskTypeAnkh, "bert": MaskTypeBERT}
@@ -58,16 +65,9 @@ datamodule = FoldSeekDataModule(
     num_workers=args.num_workers,
     subset=args.subset,
 )
-datamodule.setup()
-logger = pl.loggers.WandbLogger(
-    offline=True,
-    project="step",
-    entity="rindti",
-    settings=wandb.Settings(start_method="fork"),
-    config=config,
-    log_model=False,
-)
+
 run = logger.experiment
+datamodule.setup()
 trainer = pl.Trainer(
     accelerator="gpu",
     max_epochs=args.max_epochs,

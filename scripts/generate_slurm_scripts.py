@@ -23,6 +23,7 @@ jutil env activate -p hai_preprost
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 export NCCL_SOCKET_IFNAME=ib3,ib2,ib1,ib0
 export WANDB_DIR=$SCRATCH/wandb
+export WANDB_MODE=offline
 
 conda activate step
 srun python train.py""".strip()
