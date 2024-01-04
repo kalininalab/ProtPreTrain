@@ -15,12 +15,12 @@ ds = FoldCompDataset(
     db_name="afdb_rep_v4",
     pre_transform=T.Compose(
         [
-            ToCuda(),
+            # ToCuda(.8),
             T.Center(),
             T.NormalizeRotation(),
             T.RadiusGraph(10),
-            RandomWalkPE(20, "pe", cuda=False),
-            ToCpu(),
+            RandomWalkPE(20, "pe", cuda=True),
+            # ToCpu(),
         ]
     ),
     num_workers=int(sys.argv[1]),

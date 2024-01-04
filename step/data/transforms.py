@@ -17,7 +17,9 @@ class RandomWalkPE(BaseTransform):
 
     def forward(self, data: Data) -> Data:
         if self.cuda:
-            data = data.to("cuda")
+            if torch.cuda.device_count() > 1:
+                device = random.randint(0, torch.cuda.device_count() - 1)
+                data = data.to(f"cuda:{device}")
         adj = to_dense_adj(data.edge_index, max_num_nodes=data.x.size(0)).squeeze(0)
         row_sums = adj.sum(dim=1, keepdim=True)
         adj = adj / row_sums.clamp(min=1)
@@ -32,8 +34,14 @@ class RandomWalkPE(BaseTransform):
 
 
 class ToCuda:
+    def __init__(self, p: float = 1.0):
+        self.p = p
+
     def __call__(self, data: Data) -> Data:
-        return data.to("cuda")
+        if random.random() < self.p:
+            return data.to("cuda")
+        else:
+            return data
 
 
 class ToCpu:
