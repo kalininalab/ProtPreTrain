@@ -20,6 +20,8 @@ class RandomWalkPE(BaseTransform):
             if torch.cuda.device_count() > 1:
                 device = random.randint(0, torch.cuda.device_count() - 1)
                 data = data.to(f"cuda:{device}")
+            else:
+                data = data.to("cuda")
         adj = to_dense_adj(data.edge_index, max_num_nodes=data.x.size(0)).squeeze(0)
         row_sums = adj.sum(dim=1, keepdim=True)
         adj = adj / row_sums.clamp(min=1)
