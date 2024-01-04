@@ -1,26 +1,30 @@
 import os
 import shutil
+import sys
 
 import torch_geometric.transforms as T
 
-from step.data import FoldCompDataset, RandomWalkPE
+from step.data import FoldCompDataset, RandomWalkPE, ToCpu, ToCuda
 
-if os.path.exists("data/foldseek_small/processed"):
-    shutil.rmtree("data/foldseek_small/processed")
+ds_name = "afdb_rep_v4"
+ds_folder = f"data/{ds_name}"
+if os.path.exists(f"{ds_folder}/processed"):
+    shutil.rmtree(f"{ds_folder}/processed")
 
 ds = FoldCompDataset(
-    db_name="e_coli",
+    db_name="afdb_rep_v4",
     pre_transform=T.Compose(
         [
+            ToCuda(),
             T.Center(),
             T.NormalizeRotation(),
             T.RadiusGraph(10),
-            T.ToUndirected(),
-            RandomWalkPE(20, "pe"),
+            RandomWalkPE(20, "pe", cuda=False),
+            ToCpu(),
         ]
     ),
-    num_workers=14,
-    chunk_size=1000,
+    num_workers=int(sys.argv[1]),
+    chunk_size=int(sys.argv[2]),
 )
 
 print(len(ds))

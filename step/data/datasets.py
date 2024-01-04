@@ -13,6 +13,7 @@ import torch
 from joblib import Parallel, delayed
 from torch_geometric.data import Data, InMemoryDataset, OnDiskDataset, extract_tar
 from tqdm.auto import tqdm
+from viztracer import VizTracer
 
 import wandb
 
@@ -79,10 +80,14 @@ class FoldCompDataset(OnDiskDataset):
 
     def process_chunk(self, chunk: int):
         """Process a single chunk of the database. This is done in parallel."""
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
         chunk_file = f"{self.processed_dir}/chunks/chunk_{chunk}_{self.num_workers}"
         with foldcomp.open(chunk_file) as db:
             data_list = []
-
+            # p = Path(f"tmp/num_workers_{self.num_workers}/{generate_random_string(5)}")
+            # p.mkdir(parents=True, exist_ok=True)
+            # with VizTracer(output_file=str(p / f"chunk_{chunk}.json")):
             for idx, (name, pdb) in tqdm(
                 enumerate(db),
                 position=chunk,

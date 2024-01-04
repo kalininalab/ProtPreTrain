@@ -1,4 +1,5 @@
 import random
+from typing import Any
 
 import torch
 from torch_geometric.data import Data
@@ -27,6 +28,16 @@ class RandomWalkPE(BaseTransform):
             pe_list.append(walk_matrix.diag())
         pe = torch.stack(pe_list, dim=-1)
         data[self.attr_name] = pe
+        return data.to("cpu")
+
+
+class ToCuda:
+    def __call__(self, data: Data) -> Data:
+        return data.to("cuda")
+
+
+class ToCpu:
+    def __call__(self, data: Data) -> Data:
         return data.to("cpu")
 
 
@@ -137,9 +148,7 @@ class SequenceOnly:
 
     def __call__(self, batch) -> torch.Tensor:
         n = batch.x.size(0)
-        batch.pos = torch.stack(
-            [torch.arange(0, n) * 3.8 - (3.8 * (n - 1) / 2), torch.zeros(n), torch.zeros(n)], dim=1
-        )
+        batch.pos = torch.stack([torch.arange(0, n) * 3.8 - (3.8 * (n - 1) / 2), torch.zeros(n), torch.zeros(n)], dim=1)
         return batch
 
 
