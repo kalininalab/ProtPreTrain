@@ -85,18 +85,7 @@ class FoldCompDataset(OnDiskDataset):
         chunk_file = f"{self.processed_dir}/chunks/chunk_{chunk}_{self.num_workers}"
         with foldcomp.open(chunk_file) as db:
             data_list = []
-            # p = Path(f"tmp/num_workers_{self.num_workers}/{generate_random_string(5)}")
-            # p.mkdir(parents=True, exist_ok=True)
-            # with VizTracer(output_file=str(p / f"chunk_{chunk}.json")):
-            for idx, (name, pdb) in tqdm(
-                enumerate(db),
-                position=chunk,
-                total=len(db),
-                desc=f"Process {chunk}",
-                smoothing=0.0,
-                leave=True,
-                mininterval=1.0,
-            ):
+            for idx, (name, pdb) in enumerate(db):
                 ps = ProtStructure(pdb)
                 data = Data.from_dict(ps.get_graph())
                 data.uniprot_id = extract_uniprot_id(name)
@@ -110,17 +99,25 @@ class FoldCompDataset(OnDiskDataset):
 
     def merge_batches(self):
         """Go through a folder, put all .pt files into the database."""
+        count = 0
         data_dir = Path(self.processed_dir) / "data"
         for data_file in data_dir.glob("data*.pt"):
             if data_file.is_file():
                 data_list = torch.load(data_file)
                 self.extend(data_list)
                 data_file.unlink()
+                count += len(data_list)
+        return count
 
     def monitor_data_folder(self, stop_event: Event):
         """Monitor the data folder and update the database."""
+        with foldcomp.open(f"data/{self.db_name}/raw/{self.db_name}") as db:
+            total_num = len(db)
+            print(total_num)
+        progress_bar = tqdm(total=total_num, smoothing=0, leave=True)
         while not stop_event.is_set():
-            self.merge_batches()
+            count = self.merge_batches()
+            progress_bar.update(count)
             time.sleep(1)
 
     def process(self) -> None:
