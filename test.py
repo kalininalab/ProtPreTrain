@@ -5,11 +5,20 @@ import sys
 import torch_geometric.transforms as T
 
 from step.data import FoldCompDataset, RandomWalkPE, ToCpu, ToCuda
+import wandb
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("num_workers", type=int, default=1)
+parser.add_argument("--chunk_size", type=int, default=1000)
+args = parser.parse_args()
 
 ds_name = "afdb_rep_v4"
 ds_folder = f"data/{ds_name}"
 if os.path.exists(f"{ds_folder}/processed"):
     shutil.rmtree(f"{ds_folder}/processed")
+
+# wandb.init(project="data_processing", entity="rindti", config=args)
 
 ds = FoldCompDataset(
     db_name="afdb_rep_v4",
@@ -23,8 +32,8 @@ ds = FoldCompDataset(
             # ToCpu(),
         ]
     ),
-    num_workers=int(sys.argv[1]),
-    chunk_size=int(sys.argv[2]),
+    num_workers=args.num_workers,
+    chunk_size=args.chunk_size,
 )
 
 print(len(ds))

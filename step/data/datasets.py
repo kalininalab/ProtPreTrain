@@ -1,4 +1,3 @@
-import contextlib
 import os
 import shutil
 import subprocess
@@ -13,7 +12,7 @@ import torch
 from joblib import Parallel, delayed
 from torch_geometric.data import Data, InMemoryDataset, OnDiskDataset, extract_tar
 from tqdm.auto import tqdm
-from viztracer import VizTracer
+# from viztracer import VizTracer
 
 import wandb
 
@@ -37,6 +36,8 @@ class FoldCompDataset(OnDiskDataset):
         self._pre_transform = pre_transform
         self.num_workers = num_workers
         self.chunk_size = chunk_size
+        # torch.set_num_threads(1)
+        # torch.set_num_interop_threads(1)
         schema = {
             "x": {"dtype": torch.int64, "size": (-1,)},
             "edge_index": {"dtype": torch.int64, "size": (2, -1)},
@@ -65,13 +66,12 @@ class FoldCompDataset(OnDiskDataset):
 
     def get_chunks(self):
         """Break the original fold database into chunks."""
-        nchunks = self.num_workers
         subprocess.run(
             [
                 "mmseqs",
                 "splitdb",
                 "--split",
-                f"{nchunks}",
+                f"{self.num_workers}",
                 self.raw_paths[0],
                 f"{self.processed_dir}/chunks/chunk",
             ]
@@ -80,12 +80,15 @@ class FoldCompDataset(OnDiskDataset):
 
     def process_chunk(self, chunk: int):
         """Process a single chunk of the database. This is done in parallel."""
-        torch.set_num_threads(1)
-        torch.set_num_interop_threads(1)
         chunk_file = f"{self.processed_dir}/chunks/chunk_{chunk}_{self.num_workers}"
+        # p = Path("tmp") / f"num_workers_{self.num_workers}"
+        # p.mkdir(parents=True, exist_ok=True)
+        # with VizTracer(output_file=str(p / f"chunk_{chunk}.json")):
         with foldcomp.open(chunk_file) as db:
             data_list = []
             for idx, (name, pdb) in enumerate(db):
+                # if idx > self.chunk_size * 4:
+                #     return
                 ps = ProtStructure(pdb)
                 data = Data.from_dict(ps.get_graph())
                 data.uniprot_id = extract_uniprot_id(name)
