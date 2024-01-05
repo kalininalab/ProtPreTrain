@@ -3,6 +3,7 @@ from argparse import ArgumentParser
 from step.utils import str_to_bool
 
 parser = ArgumentParser()
+parser.add_argument("--dataset", type=str, default="afdb_rep_v4")
 parser.add_argument("--hidden_dim", type=int, default=512)
 parser.add_argument("--pe_dim", type=int, default=64)
 parser.add_argument("--pos_dim", type=int, default=64)
@@ -32,7 +33,7 @@ import torch
 import torch_geometric as pyg
 
 import wandb
-from step.data import FoldSeekDataModule, MaskType, MaskTypeAnkh, MaskTypeBERT, PosNoise, RandomWalkPE
+from step.data import FoldCompDataModule, MaskType, MaskTypeAnkh, MaskTypeBERT, PosNoise, RandomWalkPE
 from step.models import DenoiseModel
 from step.utils import WandbArtifactModelCheckpoint
 
@@ -50,15 +51,16 @@ logger = pl.loggers.WandbLogger(
 
 model = DenoiseModel(**config)
 masktype_transform = {"normal": MaskType, "ankh": MaskTypeAnkh, "bert": MaskTypeBERT}
-datamodule = FoldSeekDataModule(
-    transforms=[
+datamodule = FoldCompDataModule(
+    db_name=args.dataset,
+    pre_transforms=[
+        pyg.transforms.Center(),
+        pyg.transforms.NormalizeRotation(),
         pyg.transforms.RadiusGraph(args.radius),
         pyg.transforms.ToUndirected(),
         RandomWalkPE(args.walk_length, attr_name="pe"),
-        PosNoise(args.posnoise),
-        masktype_transform[args.masktype](args.maskfrac),
     ],
-    pre_transforms=[pyg.transforms.Center(), pyg.transforms.NormalizeRotation()],
+    transforms=[PosNoise(args.posnoise), masktype_transform[args.masktype](args.maskfrac)],
     batch_sampling=args.batch_sampling,
     batch_size=args.batch_size,
     max_num_nodes=args.max_num_nodes,

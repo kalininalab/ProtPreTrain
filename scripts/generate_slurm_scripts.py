@@ -10,8 +10,8 @@ sample_string = """
 #SBATCH --job-name=test
 #SBATCH --partition=booster
 #SBATCH --nodes={num_nodes}
-#SBATCH --ntasks-per-node=4
-#SBATCH --gres=gpu:4
+#SBATCH --ntasks-per-node=1
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task={num_workers}
 #SBATCH --mem=0
 #SBATCH --time=0-24:00:00
@@ -72,6 +72,8 @@ parser = ArgumentParser()
 parser.add_argument("--num_nodes", type=int, default=1, help="SLURM nodes")
 parser.add_argument("--num_workers", type=int, default=8, help="DataLoader workers")
 parser.add_argument("--batch_size", type=int, default=32)
+parser.add_argument("--batch_sampling", type=str_to_bool, default=True)
+parser.add_argument("--max_num_nodes", type=int, default=2048)
 parser.add_argument("--max_epochs", type=int, default=5)
 # Arguments to change across runs
 parser.add_argument("--masktype", type=str, nargs="+", default="normal", choices=["normal", "ankh", "bert"])
@@ -79,8 +81,6 @@ parser.add_argument("--maskfrac", type=float, default=0.15, nargs="+")
 parser.add_argument("--predict_all", type=str_to_bool, nargs="+", default=False)
 parser.add_argument("--alpha", type=float, nargs="+", default=0.5)
 parser.add_argument("--posnoise", type=float, default=1.0, nargs="+")
-parser.add_argument("--radius", type=int, default=10, nargs="+")
-parser.add_argument("--walk_length", type=int, default=20, nargs="+")
 args = parser.parse_args()
 
 config = vars(args)
