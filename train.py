@@ -58,7 +58,7 @@ datamodule = FoldCompDataModule(
         pyg.transforms.NormalizeRotation(),
         pyg.transforms.RadiusGraph(args.radius),
         pyg.transforms.ToUndirected(),
-        RandomWalkPE(args.walk_length, attr_name="pe"),
+        RandomWalkPE(args.walk_length, attr_name="pe", cuda=True),
     ],
     transforms=[PosNoise(args.posnoise), masktype_transform[args.masktype](args.maskfrac)],
     batch_sampling=args.batch_sampling,

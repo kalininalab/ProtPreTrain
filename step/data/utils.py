@@ -1,8 +1,9 @@
+from math import ceil
 import os
 import re
 import shutil
 from pathlib import Path
-from typing import List, Tuple
+from typing import Iterable, List, Tuple
 
 import Levenshtein
 import torch
@@ -33,14 +34,14 @@ def delete_row(tensor: torch.Tensor, row_index: int) -> torch.Tensor:
 
 def apply_edits(protein: Data, edit_operations: List[Tuple[str, int, str]]) -> Data:
     """Apply edits to a protein. The edits are calculated with `compute_edits`."""
-    n = protein.x.size(0)
+    dataset_len = protein.x.size(0)
     mutant = protein.clone()
     for op, idx, aa in edit_operations:
         new_x = aminoacids(aa, "code")
         if op == "replace":
             mutant.x[idx] = new_x
         elif op == "insert":
-            new_pos = (mutant.pos[max(idx - 1, 0)] + mutant.pos[min(idx, n - 1)]) / 2
+            new_pos = (mutant.pos[max(idx - 1, 0)] + mutant.pos[min(idx, dataset_len - 1)]) / 2
             mutant.x = torch.cat([mutant.x[:idx], torch.tensor([new_x]), mutant.x[idx:]])
             mutant.pos = torch.cat([mutant.pos[:idx], new_pos.unsqueeze(0), mutant.pos[idx:]])
         elif op == "delete":
@@ -79,3 +80,11 @@ def replace_symlinks_with_copies(directory):
             os.remove(file_path)
             # Copy the actual file
             shutil.copy2(real_file, file_path)
+
+
+def get_start_end(dataset_len: int, num_workers: int) -> list[tuple[int, int]]:
+    """Get the start and end indices for each worker."""
+    k = ceil(dataset_len / num_workers)
+    l = [(x - k, x) for x in range(k, dataset_len, k)]
+    l.append((l[-1][1], dataset_len))
+    return l

@@ -8,10 +8,12 @@ import torch_geometric.transforms as T
 import wandb
 from step.data import FoldCompDataset, RandomWalkPE
 
-wandb.init(project="data_processing", entity="rindti")
+ds_name = "afdb_rep_v4"
+if os.path.exists(f"data/{ds_name}/processed"):
+    shutil.rmtree(f"data/{ds_name}/processed")
 
 ds = FoldCompDataset(
-    db_name="afdb_rep_v4",
+    db_name=ds_name,
     pre_transform=T.Compose(
         [
             T.Center(),
@@ -21,8 +23,8 @@ ds = FoldCompDataset(
             RandomWalkPE(20, "pe", cuda=True),
         ]
     ),
-    num_workers=args.num_workers,
-    chunk_size=args.chunk_size,
+    num_workers=8,
+    chunk_size=1000,
 )
 
 print(f"Length: {len(ds)}")
