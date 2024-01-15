@@ -77,7 +77,7 @@ class FoldCompDataset(OnDiskDataset):
                     data = self._pre_transform(data)
                 data_list.append(data.to_dict())
                 if len(data_list) >= self.chunk_size:
-                    save_file(data_list, f"{self.processed_dir}/chunks/chunk_{idx}.pt")
+                    save_file(data_list, f"{self.processed_dir}/data/data_{idx}.pt")
                     data_list = []
             save_file(data_list, f"{self.processed_dir}/data/data_{idx}.pt")
 
@@ -87,8 +87,8 @@ class FoldCompDataset(OnDiskDataset):
         data_dir = Path(self.processed_dir) / "data"
         for data_file in data_dir.glob("data*.pt"):
             if data_file.is_file():
-                data = torch.load(data_file)
-                self.append(data)
+                data_list = torch.load(data_file)
+                self.extend(data_list)
                 data_file.unlink()
         return count
 
@@ -100,7 +100,6 @@ class FoldCompDataset(OnDiskDataset):
 
     def process(self) -> None:
         """Process the whole dataset for the dataset."""
-        os.makedirs(f"{self.processed_dir}/chunks", exist_ok=True)
         os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
         print("Launching monitoring process...")
         stop_event = multiprocessing.Event()

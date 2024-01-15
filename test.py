@@ -23,7 +23,7 @@ ds = FoldCompDataset(
             RandomWalkPE(20, "pe", cuda=True),
         ]
     ),
-    num_workers=8,
+    num_workers=16,
     chunk_size=1000,
 )
 
