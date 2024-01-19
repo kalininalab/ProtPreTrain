@@ -70,7 +70,7 @@ class FoldCompDataset(Dataset):
                 data.uniprot_id = extract_uniprot_id(name)
                 if self.pre_transform:
                     data = self.pre_transform(data)
-                save_file(data, f"{self.processed_dir}/data/data_{idx}.pt")
+                torch.save(data, f"{self.processed_dir}/data/data_{idx}.pt")
 
     def process(self) -> None:
         """Process the whole dataset for the dataset."""
