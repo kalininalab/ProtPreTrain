@@ -10,7 +10,7 @@ from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import BaseTransform
 from tqdm import tqdm
-from transformers import pipeline
+from transformers import pipeline, T5EncoderModel, T5Tokenizer
 
 import wandb
 
@@ -183,6 +183,15 @@ class DownstreamDataModule(LightningDataModule):
                 model, tokenizer = ankh.load_large_model()
             model.eval()
             return model, tokenizer
+        elif self.feature_extract_model_source == "prostt5":
+            """
+            Mainly based on
+            https://github.com/mheinzinger/ProstT5/blob/bfc140799e3aed6d0e2f9e0e8965a8746f2dbbc2/scripts/embed.py#L20
+            """
+            model = T5EncoderModel.from_pretrained("Rostlab/ProstT5")
+            model = model.eval().half()
+            vocab = T5Tokenizer.from_pretrained("Rostlab/ProstT5", do_lower_case=False)
+            return model, vocab
         else:
             raise ValueError(f"Unknown feature extract model source {self.feature_extract_model_source}")
 
@@ -219,6 +228,8 @@ class DownstreamDataModule(LightningDataModule):
             self._embed_with_huggingface(splits)
         elif self.feature_extract_model_source == "ankh":
             self._embed_with_ankh(splits)
+        elif self.feature_extract_model_source == "prostt5":
+            self._embed_with_prostt5(splits)
         else:
             raise ValueError(f"Unknown feature extract model source {self.feature_extract_model_source}")
 
@@ -289,6 +300,39 @@ class DownstreamDataModule(LightningDataModule):
                         attention_mask=outputs["attention_mask"].to("cuda"),
                     )
                 x = embeddings["last_hidden_state"][0].squeeze(0).mean(dim=0).cpu()
+                y = i.y
+                data = Data(x=x, y=y)
+                data_list.append(data)
+            self._assign_data(split, data_list)
+
+    def _embed_with_prostt5(self, splits: List[str]) -> List[Data]:
+        """
+        Mainly based on
+        https://github.com/mheinzinger/ProstT5/blob/bfc140799e3aed6d0e2f9e0e8965a8746f2dbbc2/scripts/embed.py#L54
+        Interesting are lines 63, 89-91, 101-129
+        """
+
+        model, vocab = self.load_pretrained_model()
+        model.to("cuda")
+        for split in splits:
+            print(split)
+            ds = getattr(self, split)
+            data_list = []
+            for i in tqdm(ds):
+                seq = i.seq.replace('U', 'X').replace('Z', 'X').replace('O', 'X')
+                seq = ' '.join(["<fold2AA>"] + list(seq))
+                token_encoding = vocab.batch_encode_plus(
+                    [seq], add_special_tokens=True, padding="longest", return_tensors='pt'
+                ).to("cuda")
+                try:
+                    with torch.no_grad():
+                        embedding_repr = model(
+                            token_encoding.input_ids, attention_mask=token_encoding.attention_mask
+                        )
+                except RuntimeError:
+                    print("RuntimeError during embedding for {} (L={})".format(i, len(i.seq)))
+                    continue
+                x = embedding_repr.last_hidden_state[0, 1:len(i.seq) + 1].mean(dim=0)
                 y = i.y
                 data = Data(x=x, y=y)
                 data_list.append(data)
