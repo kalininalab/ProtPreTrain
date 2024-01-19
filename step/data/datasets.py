@@ -11,7 +11,7 @@ import foldcomp
 import pandas as pd
 import torch
 from joblib import Parallel, delayed
-from torch_geometric.data import Data, Dataset, InMemoryDataset, OnDiskDataset
+from torch_geometric.data import Data, Dataset, InMemoryDataset, extract_tar
 from tqdm.auto import tqdm
 
 import wandb
@@ -68,8 +68,8 @@ class FoldCompDataset(Dataset):
                 ps = ProtStructure(pdb)
                 data = Data.from_dict(ps.get_graph())
                 data.uniprot_id = extract_uniprot_id(name)
-                if self._pre_transform:
-                    data = self._pre_transform(data)
+                if self.pre_transform:
+                    data = self.pre_transform(data)
                 save_file(data, f"{self.processed_dir}/data/data_{idx}.pt")
 
     def process(self) -> None:
@@ -88,9 +88,10 @@ class FoldCompDataset(Dataset):
         """Get a single datapoint from the dataset."""
         return torch.load(f"{self.processed_dir}/data/data_{idx}.pt")
 
-    def __len__(self):
+    def len(self):
         with foldcomp.open(self.raw_paths[0]) as db:
-            return len(db)
+            n = len(db)
+        return n
 
 
 class DownstreamDataset(InMemoryDataset):
