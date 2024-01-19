@@ -1,17 +1,17 @@
-from math import floor
+import multiprocessing
 import os
 import shutil
 import subprocess
 import time
+from math import floor
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
-import multiprocessing
 
 import foldcomp
 import pandas as pd
 import torch
 from joblib import Parallel, delayed
-from torch_geometric.data import Data, InMemoryDataset, OnDiskDataset, extract_tar
+from torch_geometric.data import Data, Dataset, InMemoryDataset, OnDiskDataset
 from tqdm.auto import tqdm
 
 import wandb
@@ -20,7 +20,7 @@ from .parsers import ProtStructure
 from .utils import apply_edits, compute_edits, extract_uniprot_id, get_start_end, save_file
 
 
-class FoldCompDataset(OnDiskDataset):
+class FoldCompDataset(Dataset):
     """Save FoldSeekDB as a PyTorch Geometric dataset, using the on-disk format."""
 
     def __init__(
@@ -28,26 +28,22 @@ class FoldCompDataset(OnDiskDataset):
         db_name: str = "afdb_rep_v4",
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
-        backend: str = "sqlite",
         num_workers: int = 1,
-        chunk_size: int = 1024,
     ) -> None:
         self.db_name = db_name
-        self._pre_transform = pre_transform
+        self.pre_transform = pre_transform
         self.num_workers = num_workers
-        self.chunk_size = chunk_size
-        schema = {
-            "x": {"dtype": torch.int64, "size": (-1,)},
-            "edge_index": {"dtype": torch.int64, "size": (2, -1)},
-            "uniprot_id": str,
-            "pe": {"dtype": torch.float32, "size": (-1, 20)},
-            "pos": {"dtype": torch.float32, "size": (-1, 3)},
-        }
-        super().__init__(root=f"data/{db_name}", transform=transform, backend=backend, schema=schema)
+        super().__init__(root=f"data/{db_name}", transform=transform, pre_transform=pre_transform)
 
     @property
     def raw_file_names(self):
+        """Files that have to be present in the raw directory, foldcomp database."""
         return [self.db_name + x for x in self._db_extensions]
+
+    @property
+    def processed_file_names(self):
+        """Files that have to be present in the processed directory, skip some for speed."""
+        return [f"data/data_{i}.pt" for i in range(0, len(self), 1000)]
 
     @property
     def _db_extensions(self):
@@ -67,7 +63,6 @@ class FoldCompDataset(OnDiskDataset):
         cpu_count = multiprocessing.cpu_count()
         torch.set_num_threads(floor(cpu_count / self.num_workers))
         with foldcomp.open(self.raw_paths[0]) as db:
-            data_list = []
             for idx in tqdm(range(start_num, end_num), smoothing=0, leave=True, position=chunk_id):
                 name, pdb = db[idx]
                 ps = ProtStructure(pdb)
@@ -75,36 +70,11 @@ class FoldCompDataset(OnDiskDataset):
                 data.uniprot_id = extract_uniprot_id(name)
                 if self._pre_transform:
                     data = self._pre_transform(data)
-                data_list.append(data.to_dict())
-                if len(data_list) >= self.chunk_size:
-                    save_file(data_list, f"{self.processed_dir}/data/data_{idx}.pt")
-                    data_list = []
-            save_file(data_list, f"{self.processed_dir}/data/data_{idx}.pt")
-
-    def merge_batches(self):
-        """Go through a folder, put all .pt files into the database."""
-        count = 0
-        data_dir = Path(self.processed_dir) / "data"
-        for data_file in data_dir.glob("data*.pt"):
-            if data_file.is_file():
-                data_list = torch.load(data_file)
-                self.extend(data_list)
-                data_file.unlink()
-        return count
-
-    def monitor_data_folder(self, stop_event: multiprocessing.Event):
-        """Monitor the data folder and update the database."""
-        while not stop_event.is_set():
-            self.merge_batches()
-            time.sleep(1)
+                save_file(data, f"{self.processed_dir}/data/data_{idx}.pt")
 
     def process(self) -> None:
         """Process the whole dataset for the dataset."""
         os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
-        print("Launching monitoring process...")
-        stop_event = multiprocessing.Event()
-        monitor_process = multiprocessing.Process(target=self.monitor_data_folder, args=(stop_event,))
-        monitor_process.start()
         print("Processing chunks in parallel...")
         with foldcomp.open(self.raw_paths[0]) as db:
             num_entries = len(db)
@@ -112,24 +82,15 @@ class FoldCompDataset(OnDiskDataset):
         Parallel(n_jobs=self.num_workers)(
             delayed(self.process_chunk)(start, finish, idx) for idx, (start, finish) in enumerate(chunk_indices)
         )
-        stop_event.set()
-        monitor_process.join()
-        self.merge_batches()
-        print("Cleaning up...")
         self.clean()
 
-    def clean(self):
-        """Remove the temporary files."""
-        p = Path(self.processed_dir)
-        shutil.rmtree(p / "data")
+    def get(self, idx: int) -> Any:
+        """Get a single datapoint from the dataset."""
+        return torch.load(f"{self.processed_dir}/data/data_{idx}.pt")
 
-    def serialize(self, data: Dict) -> Dict[str, Any]:
-        """To dict method for the database."""
-        return data
-
-    def deserialize(self, data: Dict[str, Any]) -> Data:
-        """From dict method for the database."""
-        return Data.from_dict(data)
+    def __len__(self):
+        with foldcomp.open(self.raw_paths[0]) as db:
+            return len(db)
 
 
 class DownstreamDataset(InMemoryDataset):
@@ -151,6 +112,7 @@ class DownstreamDataset(InMemoryDataset):
 
     @property
     def processed_file_names(self):
+        """Files that have to be present in the processed directory."""
         return ["train.pt", "valid.pt", "test.pt"]
 
     def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
@@ -266,6 +228,7 @@ class HomologyDataset(DownstreamDataset):
 
     @property
     def processed_file_names(self):
+        """Has some extra files for the test splits."""
         return ["train.pt", "valid.pt", "test_fold.pt", "test_superfamily.pt", "test_family.pt"]
 
     def _prepare_data(self, df: pd.DataFrame) -> List[Data]:

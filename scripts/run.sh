@@ -9,7 +9,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=0
 #SBATCH --time=0-24:00:00
-#SBATCH --signal=SIGUSR1@90
+#SBATCH --signal=SIGUSR1@120
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.err
 

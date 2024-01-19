@@ -4,6 +4,7 @@ from step.utils import str_to_bool
 
 parser = ArgumentParser()
 parser.add_argument("--dataset", type=str, default="afdb_rep_v4")
+parser.add_argument("--resume", type=str, default=None)
 parser.add_argument("--hidden_dim", type=int, default=512)
 parser.add_argument("--pe_dim", type=int, default=64)
 parser.add_argument("--pos_dim", type=int, default=64)
@@ -92,4 +93,4 @@ trainer = pl.Trainer(
     logger=logger,
     # profiler="pytorch"
 )
-trainer.fit(model, datamodule=datamodule)
+trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume)
