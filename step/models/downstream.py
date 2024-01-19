@@ -52,8 +52,8 @@ class BaseModel(LightningModule):
         self.save_hyperparameters()
 
     def forward(self, batch: Data) -> torch.Tensor:
-        """Return updated batch with noise and node type predictions."""
-        x, mask = to_dense_batch(batch.x, batch.batch)
+        """Use the simple MLP."""
+        x, _ = to_dense_batch(batch.x, batch.batch)
         return self.linear(x)
 
     def training_step(self, *args, **kwargs) -> dict:
@@ -94,11 +94,6 @@ class RegressionModel(BaseModel):
     ):
         super().__init__()
         self.linear = LazySimpleMLP(hidden_dim, 1, dropout)
-
-    def forward(self, batch: Data) -> Data:
-        """Return updated batch with noise and node type predictions."""
-        x, mask = to_dense_batch(batch.x, batch.batch)
-        return self.linear(x)
 
     def shared_step(self, batch: Data, batch_idx: int = 0, *, step_name: str = "train") -> dict:
         """Shared step for training and validation."""
@@ -156,3 +151,26 @@ class HomologyModel(ClassificationModel):
         """Test step."""
         step_name = ["fold", "superfamily", "family"]
         return self.shared_step(batch, step_name=f"test_{step_name[dataloader_idx]}")
+
+
+class DTIModel(RegressionModel):
+    """ECFP + Protein sequence -> Binding affinity"""
+
+    def __init__(
+        self,
+        hidden_dim: int = 512,
+        dropout: float = 0.2,
+    ):
+        super().__init__()
+        self.linear_prot = LazySimpleMLP(hidden_dim, hidden_dim, dropout)
+        self.linear_drug = LazySimpleMLP(1024, hidden_dim, dropout)
+        self.linear = LazySimpleMLP(hidden_dim * 2, 1, dropout)
+
+    def forward(self, batch: Data) -> Data:
+        """Return updated batch with noise and node type predictions."""
+        prot, _ = to_dense_batch(batch.x, batch.batch)
+        drug, _ = to_dense_batch(batch.ecfp, batch.batch)
+        prot = self.linear_prot(prot)
+        drug = self.linear_drug(drug)
+        x = torch.cat([prot, drug], dim=1)
+        return self.linear(x)

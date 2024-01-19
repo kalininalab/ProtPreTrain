@@ -17,7 +17,7 @@ from tqdm.auto import tqdm
 import wandb
 
 from .parsers import ProtStructure
-from .utils import apply_edits, compute_edits, extract_uniprot_id, get_start_end, save_file
+from .utils import apply_edits, compute_edits, extract_uniprot_id, get_start_end, save_file, smiles_to_ecfp
 
 
 class FoldCompDataset(Dataset):
@@ -63,7 +63,7 @@ class FoldCompDataset(Dataset):
         cpu_count = multiprocessing.cpu_count()
         torch.set_num_threads(floor(cpu_count / self.num_workers))
         with foldcomp.open(self.raw_paths[0]) as db:
-            for idx in tqdm(range(start_num, end_num), smoothing=0, leave=True, position=chunk_id):
+            for idx in tqdm(range(start_num, end_num), smoothing=0.1, leave=True, position=chunk_id):
                 name, pdb = db[idx]
                 ps = ProtStructure(pdb)
                 data = Data.from_dict(ps.get_graph())
@@ -242,6 +242,40 @@ class HomologyDataset(DownstreamDataset):
                 struct = ProtStructure(pdb)
                 graph = Data(**struct.get_graph())
                 graph["y"] = torch.tensor(df.loc[name, "fold_label"], dtype=torch.long)
+                graph["seq"] = struct.get_sequence()
+                data_list.append(graph)
+        return data_list
+
+
+class DTIDataset(DownstreamDataset):
+    """LP-PDBBind, molecules as ECFP."""
+
+    root = "data/dti"
+    wandb_name = "rindti/dti/dti_dataset:latest"
+
+    @property
+    def raw_file_names(self):
+        """Files that have to be present in the raw directory."""
+        return [
+            "LP_PDBBind.csv",
+            "dti_db",
+            "dti_db.index",
+            "dti_db.lookup",
+            "dti_db.dbtype",
+        ]
+
+    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
+        data_list = []
+        df = pd.read_csv(self.raw_paths[0], index_col=0)
+        ids = df.index.to_list()
+
+        with foldcomp.open(self.raw_paths[3], ids=ids) as db:
+            for name, row in tqdm(df.iterrows()):
+                name, pdb = db.get(name)
+                struct = ProtStructure(pdb)
+                graph = Data(**struct.get_graph())
+                graph["y"] = row["value"]
+                graph["ecfp"] = smiles_to_ecfp(row["smiles"], nbits=1024)
                 graph["seq"] = struct.get_sequence()
                 data_list.append(graph)
         return data_list
