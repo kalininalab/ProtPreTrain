@@ -107,9 +107,12 @@ class DownstreamDataset(InMemoryDataset):
 
     def download(self):
         """Download the dataset from wandb."""
+        wandb.init()
+        print(self.wandb_name)
         artifact = wandb.use_artifact(self.wandb_name, type="dataset")
         artifact_dir = artifact.download(self.raw_dir)
         extract_tar(str(Path(artifact_dir) / "dataset.tar.gz"), self.raw_dir)
+        wandb.finish()
 
     @property
     def processed_file_names(self):
