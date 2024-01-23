@@ -14,7 +14,7 @@ torch.multiprocessing.set_sharing_strategy("file_system")
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability", "homology"])
+parser.add_argument("--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability", "homology", "prostt5"])
 parser.add_argument("--model_source", type=str, choices=["wandb", "huggingface", "ankh"])
 parser.add_argument("--model", type=str)
 parser.add_argument("--hidden_dim", type=int, default=512)
