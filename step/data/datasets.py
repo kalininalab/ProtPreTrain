@@ -139,7 +139,7 @@ class FluorescenceDataset(DownstreamDataset):
     """Predict fluorescence for GFP mutants."""
 
     root = "data/fluorescence"
-    wandb_name = "ilsenatorov/fluorescence/fluorescence_dataset:latest"
+    wandb_name = "rindti/fluorescence/fluorescence_dataset:latest"
 
     @property
     def raw_file_names(self):
@@ -175,7 +175,7 @@ class StabilityDataset(DownstreamDataset):
     """Predict stability for various proteins."""
 
     root = "data/stability"
-    wandb_name = "ilsenatorov/stability/stability_dataset:latest"
+    wandb_name = "rindti/stability/stability_dataset:latest"
 
     @property
     def raw_file_names(self):
@@ -184,10 +184,10 @@ class StabilityDataset(DownstreamDataset):
             "stability_train.json",
             "stability_valid.json",
             "stability_test.json",
-            "structures_db",
-            "structures_db.index",
-            "structures_db.lookup",
-            "structures_db.dbtype",
+            "stability_db",
+            "stability_db.index",
+            "stability_db.lookup",
+            "stability_db.dbtype",
         ]
 
     def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
@@ -210,7 +210,7 @@ class StabilityDataset(DownstreamDataset):
 class HomologyDataset(DownstreamDataset):
     splits = {"train": 0, "val": 1, "test_fold": 2, "test_superfamily": 3, "test_family": 4}
     root = "data/homology"
-    wandb_name = "ilsenatorov/homology/homology_dataset:latest"
+    wandb_name = "rindti/homology/homology_dataset:latest"
 
     @property
     def raw_file_names(self):
