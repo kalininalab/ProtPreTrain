@@ -262,7 +262,8 @@ class DownstreamDataModule(LightningDataModule):
             data_list = []
             for batch in result:
                 for i in range(len(batch)):
-                    data = Data(x=batch.aggr_x[i], y=batch.y[i])
+                    data = batch[i]
+                    data.x = data.aggr_x
                     data_list.append(data)
             self._assign_data(split, data_list)
 
@@ -274,9 +275,8 @@ class DownstreamDataModule(LightningDataModule):
             data_list = []
             for i in tqdm(ds):
                 x = torch.tensor(pipe(i.seq)).squeeze(0).mean(dim=0)
-                y = i.y
-                data = Data(x=x, y=y)
-                data_list.append(data)
+                i.x = x
+                data_list.append(i)
             self._assign_data(split, data_list)
 
     def _embed_with_ankh(self, splits: List[str]) -> List[Data]:
@@ -299,10 +299,8 @@ class DownstreamDataModule(LightningDataModule):
                         input_ids=outputs["input_ids"].to("cuda"),
                         attention_mask=outputs["attention_mask"].to("cuda"),
                     )
-                x = embeddings["last_hidden_state"][0].squeeze(0).mean(dim=0).cpu()
-                y = i.y
-                data = Data(x=x, y=y)
-                data_list.append(data)
+                i.x = embeddings["last_hidden_state"][0].squeeze(0).mean(dim=0).cpu()
+                data_list.append(i)
             self._assign_data(split, data_list)
 
     def _embed_with_prostt5(self, splits: List[str]) -> List[Data]:
@@ -319,23 +317,19 @@ class DownstreamDataModule(LightningDataModule):
             ds = getattr(self, split)
             data_list = []
             for i in tqdm(ds):
-                seq = i.seq.replace('U', 'X').replace('Z', 'X').replace('O', 'X')
-                seq = ' '.join(["<fold2AA>"] + list(seq))
+                seq = i.seq.replace("U", "X").replace("Z", "X").replace("O", "X")
+                seq = " ".join(["<fold2AA>"] + list(seq))
                 token_encoding = vocab.batch_encode_plus(
-                    [seq], add_special_tokens=True, padding="longest", return_tensors='pt'
+                    [seq], add_special_tokens=True, padding="longest", return_tensors="pt"
                 ).to("cuda")
                 try:
                     with torch.no_grad():
-                        embedding_repr = model(
-                            token_encoding.input_ids, attention_mask=token_encoding.attention_mask
-                        )
+                        embedding_repr = model(token_encoding.input_ids, attention_mask=token_encoding.attention_mask)
                 except RuntimeError:
                     print("RuntimeError during embedding for {} (L={})".format(i, len(i.seq)))
                     continue
-                x = embedding_repr.last_hidden_state[0, 1:len(i.seq) + 1].mean(dim=0)
-                y = i.y
-                data = Data(x=x, y=y)
-                data_list.append(data)
+                i.x = embedding_repr.last_hidden_state[0, 1 : len(i.seq) + 1].mean(dim=0)
+                data_list.append(i)
             self._assign_data(split, data_list)
 
 
