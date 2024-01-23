@@ -49,9 +49,8 @@ logger = pl.loggers.WandbLogger(
     config=config,
     log_model=False,
 )
-
-model = DenoiseModel(**config)
 masktype_transform = {"normal": MaskType, "ankh": MaskTypeAnkh, "bert": MaskTypeBERT}
+
 datamodule = FoldCompDataModule(
     db_name=args.dataset,
     pre_transforms=[
@@ -68,9 +67,10 @@ datamodule = FoldCompDataModule(
     num_workers=args.num_workers,
     subset=args.subset,
 )
+datamodule.setup()
 
 run = logger.experiment
-datamodule.setup()
+model = DenoiseModel(**config)
 trainer = pl.Trainer(
     accelerator="gpu",
     max_epochs=args.max_epochs,
