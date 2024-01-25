@@ -32,11 +32,14 @@ args = parser.parse_args()
 import pytorch_lightning as pl
 import torch
 import torch_geometric as pyg
+from lightning.pytorch.strategies import DDPStrategy
 
 import wandb
 from step.data import FoldCompDataModule, MaskType, MaskTypeAnkh, MaskTypeBERT, PosNoise, RandomWalkPE
 from step.models import DenoiseModel
 from step.utils import WandbArtifactModelCheckpoint
+
+# Explicitly specify the process group backend if you choose to
 
 torch.set_float32_matmul_precision("medium")
 torch.multiprocessing.set_sharing_strategy("file_system")
@@ -49,9 +52,8 @@ logger = pl.loggers.WandbLogger(
     config=config,
     log_model=False,
 )
-
-model = DenoiseModel(**config)
 masktype_transform = {"normal": MaskType, "ankh": MaskTypeAnkh, "bert": MaskTypeBERT}
+
 datamodule = FoldCompDataModule(
     db_name=args.dataset,
     pre_transforms=[
@@ -68,15 +70,16 @@ datamodule = FoldCompDataModule(
     num_workers=args.num_workers,
     subset=args.subset,
 )
+datamodule.setup()
 
 run = logger.experiment
-datamodule.setup()
+model = DenoiseModel(**config)
 trainer = pl.Trainer(
     accelerator="gpu",
     max_epochs=args.max_epochs,
     precision="bf16-mixed",
     strategy="auto",
-    devices=-1,
+    devices=4,
     num_nodes=args.num_nodes,
     callbacks=[
         WandbArtifactModelCheckpoint(

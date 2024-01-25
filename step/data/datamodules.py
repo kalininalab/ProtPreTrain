@@ -10,7 +10,7 @@ from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import BaseTransform
 from tqdm import tqdm
-from transformers import pipeline, T5EncoderModel, T5Tokenizer
+from transformers import T5EncoderModel, T5Tokenizer, pipeline
 
 import wandb
 

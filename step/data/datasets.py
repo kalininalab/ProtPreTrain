@@ -28,7 +28,7 @@ class FoldCompDataset(Dataset):
         db_name: str = "afdb_rep_v4",
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
-        num_workers: int = 1,
+        num_workers: int = 16,
     ) -> None:
         self.db_name = db_name
         self.pre_transform = pre_transform
@@ -43,7 +43,7 @@ class FoldCompDataset(Dataset):
     @property
     def processed_file_names(self):
         """Files that have to be present in the processed directory, skip some for speed."""
-        return [f"data/data_{i}.pt" for i in range(0, len(self), 1000)]
+        return [f"data/data_{self.len() - 1}.pt"]
 
     @property
     def _db_extensions(self):
@@ -70,7 +70,7 @@ class FoldCompDataset(Dataset):
                 data.uniprot_id = extract_uniprot_id(name)
                 if self.pre_transform:
                     data = self.pre_transform(data)
-                save_file(data, f"{self.processed_dir}/data/data_{idx}.pt")
+                torch.save(data, f"{self.processed_dir}/data/data_{idx}.pt")
 
     def process(self) -> None:
         """Process the whole dataset for the dataset."""
