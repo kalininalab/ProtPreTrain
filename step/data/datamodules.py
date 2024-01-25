@@ -10,7 +10,7 @@ from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import BaseTransform
 from tqdm import tqdm
-from transformers import pipeline, T5EncoderModel, T5Tokenizer
+from transformers import T5EncoderModel, T5Tokenizer, pipeline
 
 import wandb
 
@@ -263,6 +263,7 @@ class DownstreamDataModule(LightningDataModule):
             for batch in result:
                 for i in range(len(batch)):
                     data = batch[i]
+                    print(data)
                     data.x = data.aggr_x
                     data_list.append(data)
             self._assign_data(split, data_list)
