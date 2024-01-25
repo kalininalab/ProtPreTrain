@@ -15,7 +15,7 @@ from transformers import pipeline, T5EncoderModel, T5Tokenizer
 import wandb
 
 from ..models import DenoiseModel
-from .datasets import FluorescenceDataset, FoldCompDataset, HomologyDataset, StabilityDataset
+from .datasets import FluorescenceDataset, FoldCompDataset, HomologyDataset, StabilityDataset, DTIDataset
 from .samplers import DynamicBatchSampler
 from .transforms import RandomWalkPE, SequenceOnly, StructureOnly
 
@@ -126,12 +126,16 @@ class DownstreamDataModule(LightningDataModule):
 
     def _optional_add_transform(self):
         if self.feature_extract_model_source == "wandb":
-            pre_transform = T.Compose([T.Center(), T.NormalizeRotation()])
-            transform = [
-                T.RadiusGraph(self.radius),
-                T.ToUndirected(),
-                RandomWalkPE(self.walk_length, "pe"),
-            ]
+            pre_transform = T.Compose(
+                [
+                    T.Center(),
+                    T.NormalizeRotation(),
+                    T.RadiusGraph(self.radius),
+                    T.ToUndirected(),
+                    RandomWalkPE(self.walk_length, "pe"),
+                ]
+            )
+            transform = []
             if self.ablation == "sequence":
                 transform = [SequenceOnly()] + transform
             elif self.ablation == "structure":
@@ -222,6 +226,10 @@ class DownstreamDataModule(LightningDataModule):
                 pre_transform=pre_transform,
                 **self.kwargs,
             )
+        self.embed_splits(splits)
+
+    def embed_splits(self, splits: List[str]):
+        """Embed the splits."""
         if self.feature_extract_model_source == "wandb":
             self._embed_with_wandb(splits)
         elif self.feature_extract_model_source == "huggingface":
@@ -262,8 +270,9 @@ class DownstreamDataModule(LightningDataModule):
             data_list = []
             for batch in result:
                 for i in range(len(batch)):
-                    data = Data(x=batch.aggr_x[i], y=batch.y[i])
-                    data_list.append(data)
+                    k = batch[i]
+                    k.x = k.aggr_x
+                    data_list.append(k)
             self._assign_data(split, data_list)
 
     def _embed_with_huggingface(self, splits: List[str]) -> List[Data]:
@@ -273,10 +282,8 @@ class DownstreamDataModule(LightningDataModule):
             ds = getattr(self, split)
             data_list = []
             for i in tqdm(ds):
-                x = torch.tensor(pipe(i.seq)).squeeze(0).mean(dim=0)
-                y = i.y
-                data = Data(x=x, y=y)
-                data_list.append(data)
+                i.x = torch.tensor(pipe(i.seq)).squeeze(0).mean(dim=0)
+                data_list.append(i)
             self._assign_data(split, data_list)
 
     def _embed_with_ankh(self, splits: List[str]) -> List[Data]:
@@ -299,10 +306,8 @@ class DownstreamDataModule(LightningDataModule):
                         input_ids=outputs["input_ids"].to("cuda"),
                         attention_mask=outputs["attention_mask"].to("cuda"),
                     )
-                x = embeddings["last_hidden_state"][0].squeeze(0).mean(dim=0).cpu()
-                y = i.y
-                data = Data(x=x, y=y)
-                data_list.append(data)
+                i.x = embeddings["last_hidden_state"][0].squeeze(0).mean(dim=0).cpu()
+                data_list.append(i)
             self._assign_data(split, data_list)
 
     def _embed_with_prostt5(self, splits: List[str]) -> List[Data]:
@@ -319,23 +324,19 @@ class DownstreamDataModule(LightningDataModule):
             ds = getattr(self, split)
             data_list = []
             for i in tqdm(ds):
-                seq = i.seq.replace('U', 'X').replace('Z', 'X').replace('O', 'X')
-                seq = ' '.join(["<fold2AA>"] + list(seq))
+                seq = i.seq.replace("U", "X").replace("Z", "X").replace("O", "X")
+                seq = " ".join(["<fold2AA>"] + list(seq))
                 token_encoding = vocab.batch_encode_plus(
-                    [seq], add_special_tokens=True, padding="longest", return_tensors='pt'
+                    [seq], add_special_tokens=True, padding="longest", return_tensors="pt"
                 ).to("cuda")
                 try:
                     with torch.no_grad():
-                        embedding_repr = model(
-                            token_encoding.input_ids, attention_mask=token_encoding.attention_mask
-                        )
+                        embedding_repr = model(token_encoding.input_ids, attention_mask=token_encoding.attention_mask)
                 except RuntimeError:
                     print("RuntimeError during embedding for {} (L={})".format(i, len(i.seq)))
                     continue
-                x = embedding_repr.last_hidden_state[0, 1:len(i.seq) + 1].mean(dim=0)
-                y = i.y
-                data = Data(x=x, y=y)
-                data_list.append(data)
+                i.x = embedding_repr.last_hidden_state[0, 1 : len(i.seq) + 1].mean(dim=0)
+                data_list.append(i)
             self._assign_data(split, data_list)
 
 
@@ -349,6 +350,12 @@ class StabilityDataModule(DownstreamDataModule):
     """Predict peptide stability."""
 
     dataset_class = StabilityDataset
+
+
+class DTIDataModule(DownstreamDataModule):
+    """Predict peptide stability."""
+
+    dataset_class = DTIDataset
 
 
 class HomologyDataModule(DownstreamDataModule):
@@ -395,14 +402,7 @@ class HomologyDataModule(DownstreamDataModule):
                 pre_transform=pre_transform,
                 **self.kwargs,
             )
-        if self.feature_extract_model_source == "wandb":
-            self._embed_with_wandb(splits)
-        elif self.feature_extract_model_source == "huggingface":
-            self._embed_with_huggingface(splits)
-        elif self.feature_extract_model_source == "ankh":
-            self._embed_with_ankh(splits)
-        else:
-            raise ValueError(f"Unknown feature extract model source {self.feature_extract_model_source}")
+        self.embed_splits(splits)
 
     def test_dataloader(self):
         """Test dataloader."""

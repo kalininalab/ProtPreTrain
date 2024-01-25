@@ -107,12 +107,11 @@ class DownstreamDataset(InMemoryDataset):
 
     def download(self):
         """Download the dataset from wandb."""
-        wandb.init()
-        print(self.wandb_name)
+        if wandb.run is None:
+            wandb.init()
         artifact = wandb.use_artifact(self.wandb_name, type="dataset")
         artifact_dir = artifact.download(self.raw_dir)
         extract_tar(str(Path(artifact_dir) / "dataset.tar.gz"), self.raw_dir)
-        wandb.finish()
 
     @property
     def processed_file_names(self):
@@ -187,10 +186,10 @@ class StabilityDataset(DownstreamDataset):
             "stability_train.json",
             "stability_valid.json",
             "stability_test.json",
-            "structures_db",
-            "structures_db.index",
-            "structures_db.lookup",
-            "structures_db.dbtype",
+            "stability_db",
+            "stability_db.index",
+            "stability_db.lookup",
+            "stability_db.dbtype",
         ]
 
     def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
@@ -260,7 +259,9 @@ class DTIDataset(DownstreamDataset):
     def raw_file_names(self):
         """Files that have to be present in the raw directory."""
         return [
-            "LP_PDBBind.csv",
+            "dti_train.json",
+            "dti_valid.json",
+            "dti_test.json",
             "dti_db",
             "dti_db.index",
             "dti_db.lookup",
@@ -269,16 +270,15 @@ class DTIDataset(DownstreamDataset):
 
     def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
         data_list = []
-        df = pd.read_csv(self.raw_paths[0], index_col=0)
+        df.set_index("ids", inplace=True)
         ids = df.index.to_list()
 
         with foldcomp.open(self.raw_paths[3], ids=ids) as db:
-            for name, row in tqdm(df.iterrows()):
-                name, pdb = db.get(name)
+            for name, pdb in tqdm(db):
                 struct = ProtStructure(pdb)
                 graph = Data(**struct.get_graph())
-                graph["y"] = row["value"]
-                graph["ecfp"] = smiles_to_ecfp(row["smiles"], nbits=1024)
+                graph["y"] = float(df.loc[name, "y"])
+                graph["ecfp"] = smiles_to_ecfp(df.loc[name, "Ligand"], nbits=1024)
                 graph["seq"] = struct.get_sequence()
                 data_list.append(graph)
         return data_list

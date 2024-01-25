@@ -161,9 +161,8 @@ class ProtStructure:
         return len(self.residues)
 
 
-def check_path_valid(path: str):
+def check_path_valid(path: str, max_path_length: int = 512):
     """Check if path is valid."""
-    max_path_length = os.pathconf(path, "PC_PATH_MAX")
     if len(path) > max_path_length:
         return False
     p = Path(path)

@@ -92,11 +92,11 @@ def get_start_end(dataset_len: int, num_workers: int) -> list[tuple[int, int]]:
     return l
 
 
-def smiles_to_ecfp(smiles: str, radius: int = 2, nBits: int = 2048) -> torch.Tensor:
+def smiles_to_ecfp(smiles: str, radius: int = 2, nbits: int = 2048) -> torch.Tensor:
     """Convert a SMILES string to an ECFP fingerprint."""
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         raise ValueError("Invalid SMILES string")
-    ecfp = AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits)
-    ecfp_tensor = torch.tensor(list(ecfp))
+    ecfp = AllChem.GetMorganFingerprintAsBitVect(mol, radius, nbits)
+    ecfp_tensor = torch.tensor(list(ecfp), dtype=torch.float32)
     return ecfp_tensor

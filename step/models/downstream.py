@@ -159,7 +159,7 @@ class DTIModel(RegressionModel):
     def __init__(
         self,
         hidden_dim: int = 512,
-        dropout: float = 0.2,
+        dropout: float = 0.5,
     ):
         super().__init__()
         self.linear_prot = LazySimpleMLP(hidden_dim, hidden_dim, dropout)
@@ -168,8 +168,9 @@ class DTIModel(RegressionModel):
 
     def forward(self, batch: Data) -> Data:
         """Return updated batch with noise and node type predictions."""
-        prot, _ = to_dense_batch(batch.x, batch.batch)
-        drug, _ = to_dense_batch(batch.ecfp, batch.batch)
+        num_nodes = len(batch)
+        prot = batch.x.view(num_nodes, -1)
+        drug = batch.ecfp.view(num_nodes, -1)
         prot = self.linear_prot(prot)
         drug = self.linear_drug(drug)
         x = torch.cat([prot, drug], dim=1)
