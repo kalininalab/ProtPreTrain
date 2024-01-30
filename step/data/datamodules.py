@@ -266,12 +266,12 @@ class DownstreamDataModule(LightningDataModule):
         model = self.load_pretrained_model()
         for split in splits:
             dl = self._get_dataloader(getattr(self, split))
-            result = trainer.predict(model, dl)
+            result = trainer.predict(model, dataloaders=dl)
             data_list = []
             for batch in result:
                 for i in range(len(batch)):
                     k = batch[i]
-                    k.x = k.aggr_x
+                    k.x = batch.aggr_x[i]
                     data_list.append(k)
             self._assign_data(split, data_list)
 
