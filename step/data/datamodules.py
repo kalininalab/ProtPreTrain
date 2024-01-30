@@ -263,7 +263,6 @@ class DownstreamDataModule(LightningDataModule):
             for batch in result:
                 for i in range(len(batch)):
                     data = batch[i]
-                    print(data)
                     data.x = data.aggr_x
                     data_list.append(data)
             self._assign_data(split, data_list)

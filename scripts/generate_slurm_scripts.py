@@ -12,7 +12,8 @@ sample_string = """
 #SBATCH --nodes={num_nodes}
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:4
-#SBATCH --cpus-per-task={num_workers}
+#SBATCH --cpus-per-task=48
+#SBATCH --cpu-bind=none
 #SBATCH --mem=0
 #SBATCH --time=24:00:00
 #SBATCH --signal=SIGUSR1@90
@@ -26,7 +27,7 @@ export WANDB_DIR=$SCRATCH/wandb
 export WANDB_MODE=offline
 
 conda activate step
-srun python train.py""".strip()
+srun bash -c 'train.py'""".strip()
 
 
 def str_to_bool(value: str) -> bool:
