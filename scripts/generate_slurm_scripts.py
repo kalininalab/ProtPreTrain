@@ -13,7 +13,6 @@ sample_string = """
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=48
-#SBATCH --cpu-bind=none
 #SBATCH --mem=0
 #SBATCH --time=24:00:00
 #SBATCH --signal=SIGUSR1@90
@@ -21,13 +20,19 @@ sample_string = """
 #SBATCH --error=logs/%j.err
 jutil env activate -p hai_preprost
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3
-export NCCL_SOCKET_IFNAME=ib3,ib2,ib1,ib0
 export WANDB_DIR=$SCRATCH/wandb
 export WANDB_MODE=offline
 
+export SRUN_CPUS_PER_TASK=${{SLURM_CPUS_PER_TASK}}
+MASTER_ADDR="$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)"
+export MASTER_ADDR="${{MASTER_ADDR}}i"
+export MASTER_ADDR="$(nslookup "$MASTER_ADDR" | grep -oP '(?<=Address: ).*')"
+export MASTER_PORT=6000
+export GPUS_PER_NODE=4
+export NNODES=$SLURM_JOB_NUM_NODES
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 conda activate step
-srun bash -c 'train.py'""".strip()
+srun --cpus-per-task="$SLURM_CPUS_PER_TASK" --cpu-bind=none bash -c 'python train.py --num_nodes $SLURM_JOB_NUM_NODES""".strip()
 
 
 def str_to_bool(value: str) -> bool:
@@ -64,6 +69,8 @@ def config_to_str(d: dict) -> str:
     """From config generate argparse cli arguments"""
     res = ""
     for k, v in d.items():
+        if k == "num_nodes":
+            continue
         res += f" --{k} {v}"
     return res
 
@@ -95,4 +102,4 @@ p.mkdir()
 for config, filename in all_configs:
     with open(p / f"{filename}.sh", "w") as f:
         f.write(sample_string.format(num_nodes=config["num_nodes"], num_workers=config["num_workers"]))
-        f.write(config_to_str(config))
+        f.write(config_to_str(config) + "'")
