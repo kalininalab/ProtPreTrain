@@ -23,7 +23,7 @@ ds = FoldCompDataset(
             RandomWalkPE(20, "pe", cuda=True),
         ]
     ),
-    num_workers=24,
+    num_workers=8,
 )
 
 print(f"Length: {len(ds)}")

@@ -80,7 +80,7 @@ trainer = pl.Trainer(
     max_epochs=args.max_epochs,
     precision="bf16-mixed",
     strategy="auto",
-    devices=4,
+    devices=-1,
     num_nodes=args.num_nodes,
     callbacks=[
         WandbArtifactModelCheckpoint(

@@ -1,7 +1,6 @@
 import multiprocessing
 import os
 import shutil
-import subprocess
 import time
 from math import floor
 from pathlib import Path
@@ -11,7 +10,7 @@ import foldcomp
 import pandas as pd
 import torch
 from joblib import Parallel, delayed
-from torch_geometric.data import Data, Dataset, InMemoryDataset, extract_tar
+from torch_geometric.data import Data, InMemoryDataset, extract_tar, OnDiskDataset
 from tqdm.auto import tqdm
 
 import wandb
@@ -64,11 +63,16 @@ class FoldCompDataset(OnDiskDataset):
 
     def process_chunk(self, start_num: int, end_num: int, chunk_id: int):
         """Process a single chunk of the database. This is done in parallel."""
-        cpu_count = multiprocessing.cpu_count()
-        torch.set_num_threads(floor(cpu_count / self.num_workers))
+        torch.set_num_threads(1)
         with foldcomp.open(self.raw_paths[0]) as db:
             data_list = []
-            for idx in tqdm(range(start_num, end_num), smoothing=0, leave=True, position=chunk_id):
+            for idx in tqdm(
+                range(start_num, end_num),
+                smoothing=0.1,
+                leave=True,
+                position=chunk_id,
+                mininterval=1,
+            ):
                 name, pdb = db[idx]
                 ps = ProtStructure(pdb)
                 data = Data.from_dict(ps.get_graph())
