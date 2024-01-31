@@ -10,8 +10,9 @@ import foldcomp
 import pandas as pd
 import torch
 from joblib import Parallel, delayed
-from torch_geometric.data import Data, InMemoryDataset, extract_tar, OnDiskDataset
+from torch_geometric.data import Data, InMemoryDataset, extract_tar, OnDiskDataset, Dataset
 from tqdm.auto import tqdm
+import h5py
 
 import wandb
 
@@ -19,34 +20,30 @@ from .parsers import ProtStructure
 from .utils import apply_edits, compute_edits, extract_uniprot_id, get_start_end, save_file, smiles_to_ecfp
 
 
-class FoldCompDataset(OnDiskDataset):
+class FoldCompDataset(Dataset):
     """Save FoldSeekDB as a PyTorch Geometric dataset, using the on-disk format."""
 
     def __init__(
         self,
         db_name: str = "afdb_rep_v4",
-        transform: Optional[Callable] = None,
-        pre_transform: Optional[Callable] = None,
-        backend: str = "sqlite",
+        transform=None,
+        pre_transform=None,
         num_workers: int = 1,
         chunk_size: int = 1024,
     ) -> None:
-        self.db_name = db_name
-        self._pre_transform = pre_transform
         self.num_workers = num_workers
         self.chunk_size = chunk_size
-        schema = {
-            "x": {"dtype": torch.int64, "size": (-1,)},
-            "edge_index": {"dtype": torch.int64, "size": (2, -1)},
-            "uniprot_id": str,
-            "pe": {"dtype": torch.float32, "size": (-1, 20)},
-            "pos": {"dtype": torch.float32, "size": (-1, 3)},
-        }
-        super().__init__(root=f"data/{db_name}", transform=transform, backend=backend, schema=schema)
+        self.db_name = db_name
+        super().__init__(root=f"data/{db_name}", transform=transform, pre_transform=pre_transform)
+        self.data = h5py.File(self.processed_paths[0], "r")
 
     @property
     def raw_file_names(self):
         return [self.db_name + x for x in self._db_extensions]
+
+    @property
+    def processed_file_names(self):
+        return ["data.h5"]
 
     @property
     def _db_extensions(self):
@@ -77,24 +74,32 @@ class FoldCompDataset(OnDiskDataset):
                 ps = ProtStructure(pdb)
                 data = Data.from_dict(ps.get_graph())
                 data.uniprot_id = extract_uniprot_id(name)
-                if self._pre_transform:
-                    data = self._pre_transform(data)
+                if self.pre_transform:
+                    data = self.pre_transform(data)
                 data_list.append(data.to_dict())
                 if len(data_list) >= self.chunk_size:
                     save_file(data_list, f"{self.processed_dir}/data/data_{idx}.pt")
                     data_list = []
             save_file(data_list, f"{self.processed_dir}/data/data_{idx}.pt")
 
+    def extend(self, data_list: list[dict]):
+        with h5py.File(self.processed_paths[0], "a") as f:
+            curlen = len(f)
+            for i, graph_data in enumerate(data_list):
+                grp = f.create_group(str(i + curlen))
+                for key, value in graph_data.items():
+                    if isinstance(value, torch.Tensor):
+                        value = value.cpu().detach().numpy()
+                        grp.create_dataset(key, data=value)
+
     def merge_batches(self):
         """Go through a folder, put all .pt files into the database."""
-        count = 0
         data_dir = Path(self.processed_dir) / "data"
         for data_file in data_dir.glob("data*.pt"):
             if data_file.is_file():
                 data_list = torch.load(data_file)
                 self.extend(data_list)
                 data_file.unlink()
-        return count
 
     def monitor_data_folder(self, stop_event: multiprocessing.Event):
         """Monitor the data folder and update the database."""
@@ -127,13 +132,16 @@ class FoldCompDataset(OnDiskDataset):
         p = Path(self.processed_dir)
         shutil.rmtree(p / "data")
 
-    def serialize(self, data: Dict) -> Dict[str, Any]:
-        """To dict method for the database."""
-        return data
-
-    def deserialize(self, data: Dict[str, Any]) -> Data:
-        """From dict method for the database."""
+    def get(self, idx):
+        data = {}
+        grp = self.data[str(idx)]
+        for key in grp.keys():
+            data[key] = torch.tensor(grp[key][:])
         return Data.from_dict(data)
+
+    def len(self):
+        with h5py.File(self.processed_paths[0], "r") as f:
+            return len(f)
 
 
 class DownstreamDataset(InMemoryDataset):
