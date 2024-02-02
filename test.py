@@ -24,6 +24,7 @@ ds = FoldCompDataset(
         ]
     ),
     num_workers=8,
+    chunk_size=64,
 )
 
 print(f"Length: {len(ds)}")
