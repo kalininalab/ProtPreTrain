@@ -8,7 +8,7 @@ import torch_geometric.transforms as T
 import wandb
 from step.data import FoldCompDataset, RandomWalkPE
 
-ds_name = "afdb_rep_v4"
+ds_name = "e_coli"
 if os.path.exists(f"data/{ds_name}/processed"):
     shutil.rmtree(f"data/{ds_name}/processed")
 
@@ -24,7 +24,7 @@ ds = FoldCompDataset(
         ]
     ),
     num_workers=8,
-    chunk_size=64,
+    chunk_size=512,
 )
 
 print(f"Length: {len(ds)}")

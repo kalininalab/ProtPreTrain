@@ -2,18 +2,17 @@ import multiprocessing
 import os
 import shutil
 import time
-from math import floor
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
-import zarr
+from .database import Database
 
 import foldcomp
-import numpy as np
 import pandas as pd
 import torch
 from joblib import Parallel, delayed
-from torch_geometric.data import Data, InMemoryDataset, extract_tar, OnDiskDataset, Dataset
+from torch_geometric.data import Data, InMemoryDataset, extract_tar, Dataset
 from tqdm.auto import tqdm
+import numpy as np
+from typing import Callable
 
 import wandb
 
@@ -68,7 +67,10 @@ class FoldCompDataset(Dataset):
         self.num_workers = num_workers
         self.chunk_size = chunk_size
         self.db_name = db_name
+        self.db = None
         super().__init__(root=f"data/{db_name}", transform=transform, pre_transform=pre_transform)
+        if self.db is None:
+            self.db = Database(self.processed_paths[0])
 
     @property
     def raw_file_names(self):
@@ -76,7 +78,7 @@ class FoldCompDataset(Dataset):
 
     @property
     def processed_file_names(self):
-        return ["data.h5"]
+        return ["data.db"]
 
     @property
     def _db_extensions(self):
@@ -91,24 +93,13 @@ class FoldCompDataset(Dataset):
         foldcomp.setup(self.raw_file_names[0])
         os.chdir(current_dir)
 
-    def extend(self, data_dict: dict[int, dict]):
-        with zarr.ZipStore(self.processed_paths[0]) as f:
-            for idx, graph_data in data_dict.items():
-                grp = f.create_group(f"data_{idx}")
-                for key, value in graph_data.items():
-                    if isinstance(value, torch.Tensor):
-                        value = value.numpy()
-                        grp.create_dataset(key, data=value, chunks=True)
-                    else:
-                        grp.create_dataset(key, data=value)
-
     def merge_batches(self):
         """Go through a folder, put all .pt files into the database."""
         data_dir = Path(self.processed_dir) / "data"
         for data_file in data_dir.glob("data*.pt"):
             if data_file.is_file():
-                data = torch.load(data_file)
-                self.extend(data)
+                data_dict = torch.load(data_file)
+                self.db.multi_insert(data_dict.keys(), data_dict.values())
                 data_file.unlink()
 
     def monitor_data_folder(self, stop_event: multiprocessing.Event):
@@ -119,6 +110,7 @@ class FoldCompDataset(Dataset):
 
     def process(self) -> None:
         """Process the whole dataset for the dataset."""
+        self.db = Database(self.processed_paths[0])
         os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
         print("Launching monitoring process...")
         stop_event = multiprocessing.Event()
@@ -145,7 +137,6 @@ class FoldCompDataset(Dataset):
         self.merge_batches()
         print("Cleaning up...")
         self.clean()
-        self.write_file.close()
 
     def clean(self):
         """Remove the temporary files."""
@@ -153,14 +144,10 @@ class FoldCompDataset(Dataset):
         shutil.rmtree(p / "data")
 
     def get(self, idx):
-        data = {}
-        grp = self.data[f"data_{idx}"]
-        for key in grp.keys():
-            data[key] = torch.tensor(np.asarray(grp[key]))
-        return Data.from_dict(data)
+        return self.db.get(idx)
 
     def len(self):
-        return len(self.data)
+        return len(self.db)
 
 
 class DownstreamDataset(InMemoryDataset):
@@ -188,22 +175,22 @@ class DownstreamDataset(InMemoryDataset):
         """Files that have to be present in the processed directory."""
         return ["train.pt", "valid.pt", "test.pt"]
 
-    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
+    def _prepare_data(self, df: pd.DataFrame) -> list[Data]:
         raise NotImplementedError
 
     def process(self):
         """Do the full run for the dataset."""
         for split, idx in self.splits.items():
             df = pd.read_json(self.raw_paths[idx])
-            data_list = self._prepare_data(df)
+            data_dict = self._prepare_data(df)
 
             if self.pre_filter is not None:
-                data_list = [data for data in data_list if self.pre_filter(data)]
+                data_dict = [data for data in data_dict if self.pre_filter(data)]
 
             if self.pre_transform is not None:
-                data_list = [self.pre_transform(data) for data in data_list]
+                data_dict = [self.pre_transform(data) for data in data_dict]
 
-            data, slices = self.collate(data_list)
+            data, slices = self.collate(data_dict)
             torch.save((data, slices), self.processed_paths[idx])
 
 
@@ -223,14 +210,14 @@ class FluorescenceDataset(DownstreamDataset):
             "AF-P42212-F1-model_v4.pdb",
         ]
 
-    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
+    def _prepare_data(self, df: pd.DataFrame) -> list[Data]:
         # df["primary"] = "M" + df["primary"]
         ps = ProtStructure(self.raw_paths[3])
         orig_sequence = ps.get_sequence()
         orig_graph = Data(**ps.get_graph())
         df["edits"] = df.apply(lambda row: compute_edits(orig_sequence, row["primary"]), axis=1)
         df["graph"] = df.apply(lambda row: apply_edits(orig_graph, row["edits"]), axis=1)
-        data_list = [
+        data_dict = [
             Data(
                 y=row["log_fluorescence"][0],
                 num_mutations=row["num_mutations"],
@@ -240,7 +227,7 @@ class FluorescenceDataset(DownstreamDataset):
             )
             for _, row in df.iterrows()
         ]
-        return data_list
+        return data_dict
 
 
 class StabilityDataset(DownstreamDataset):
@@ -262,8 +249,8 @@ class StabilityDataset(DownstreamDataset):
             "stability_db.dbtype",
         ]
 
-    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
-        data_list = []
+    def _prepare_data(self, df: pd.DataFrame) -> list[Data]:
+        data_dict = []
         ids = df["id"].tolist()
         df.set_index("id", inplace=True)
 
@@ -275,8 +262,8 @@ class StabilityDataset(DownstreamDataset):
                 if isinstance(graph["y"], list):
                     graph["y"] = graph["y"][0]
                 graph["seq"] = struct.get_sequence()
-                data_list.append(graph)
-        return data_list
+                data_dict.append(graph)
+        return data_dict
 
 
 class HomologyDataset(DownstreamDataset):
@@ -304,8 +291,8 @@ class HomologyDataset(DownstreamDataset):
         """Has some extra files for the test splits."""
         return ["train.pt", "valid.pt", "test_fold.pt", "test_superfamily.pt", "test_family.pt"]
 
-    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
-        data_list = []
+    def _prepare_data(self, df: pd.DataFrame) -> list[Data]:
+        data_dict = []
         ids = df["id"].tolist()
         df.set_index("id", inplace=True)
 
@@ -315,8 +302,8 @@ class HomologyDataset(DownstreamDataset):
                 graph = Data(**struct.get_graph())
                 graph["y"] = torch.tensor(df.loc[name, "fold_label"], dtype=torch.long)
                 graph["seq"] = struct.get_sequence()
-                data_list.append(graph)
-        return data_list
+                data_dict.append(graph)
+        return data_dict
 
 
 class DTIDataset(DownstreamDataset):
@@ -336,8 +323,8 @@ class DTIDataset(DownstreamDataset):
             "dti_db.dbtype",
         ]
 
-    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
-        data_list = []
+    def _prepare_data(self, df: pd.DataFrame) -> list[Data]:
+        data_dict = []
         df = pd.read_csv(self.raw_paths[0], index_col=0)
         ids = df.index.to_list()
 
@@ -349,5 +336,5 @@ class DTIDataset(DownstreamDataset):
                 graph["y"] = row["value"]
                 graph["ecfp"] = smiles_to_ecfp(row["smiles"], nbits=1024)
                 graph["seq"] = struct.get_sequence()
-                data_list.append(graph)
-        return data_list
+                data_dict.append(graph)
+        return data_dict
