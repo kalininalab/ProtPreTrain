@@ -17,12 +17,11 @@ from typing import Callable
 import wandb
 
 from .parsers import ProtStructure
-from .utils import apply_edits, compute_edits, extract_uniprot_id, get_start_end, save_file, smiles_to_ecfp
+from .utils import apply_edits, compute_edits, extract_uniprot_id, split_indices_between_workers, save_file, smiles_to_ecfp
 
 
 def process_chunk(
-    start_num: int,
-    end_num: int,
+    indices:list,
     chunk_id: int,
     db_file: str,
     processed_dir: str,
@@ -34,7 +33,7 @@ def process_chunk(
     with foldcomp.open(db_file) as db:
         data_dict = {}
         for idx in tqdm(
-            range(start_num, end_num),
+            indices,
             smoothing=0.1,
             leave=True,
             position=chunk_id,
@@ -119,24 +118,41 @@ class FoldCompDataset(Dataset):
         print("Processing chunks in parallel...")
         with foldcomp.open(self.raw_paths[0]) as db:
             num_entries = len(db)
-        chunk_indices = get_start_end(num_entries, self.num_workers)
+        chunk_indices = split_indices_between_workers(list(range(num_entries)), self.num_workers)
         Parallel(n_jobs=self.num_workers)(
             delayed(process_chunk)(
-                start,
-                finish,
+                indices,
                 idx,
                 self.raw_paths[0],
                 self.processed_dir,
                 self.pre_transform,
                 self.chunk_size,
             )
-            for idx, (start, finish) in enumerate(chunk_indices)
+            for idx, indices in enumerate(chunk_indices)
         )
         stop_event.set()
         monitor_process.join()
         self.merge_batches()
         print("Cleaning up...")
         self.clean()
+
+    def _check_resume_needed(self):
+        """Check if everything is already processed."""
+        if Path(self.processed_paths[0]).is_file():
+            if self.db is None:
+                self.db = Database(self.processed_paths[0])
+            foldcomp_db = foldcomp.open(self.raw_paths[0])
+            if len(foldcomp_db) == len(self.db):
+                return False
+        return True
+
+    def get_unprocessed_indices(self):
+        """Get the indices that are not in the database."""
+        db_indices = set(self.db.get_all_indices())
+        with foldcomp.open(self.raw_paths[0]) as db:
+            n = len(db)
+        all_indices = set(range(n))
+        return all_indices - db_indices
 
     def clean(self):
         """Remove the temporary files."""

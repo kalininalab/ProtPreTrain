@@ -23,6 +23,7 @@ class Database:
         )
         """
         )
+        self.cursor.execute(f"CREATE INDEX IF NOT EXISTS idx ON {self.name} (id)")
         self.conn.commit()
 
     def insert(self, index: int, data: dict) -> None:
@@ -71,8 +72,12 @@ class Database:
         return data
 
     def __len__(self):
-        self.cursor.execute("SELECT max(id) FROM FoldCompDataset")
+        self.cursor.execute(f"SELECT COUNT(id) FROM {self.name}")
         return self.cursor.fetchone()[0]
 
     def close(self):
         self.conn.close()
+
+    def get_all_indices(self):
+        self.cursor.execute(f"SELECT id FROM {self.name}")
+        return [row[0] for row in self.cursor.fetchall()]

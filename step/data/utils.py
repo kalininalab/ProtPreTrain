@@ -84,11 +84,10 @@ def replace_symlinks_with_copies(directory):
             shutil.copy2(real_file, file_path)
 
 
-def get_start_end(dataset_len: int, num_workers: int) -> list[tuple[int, int]]:
-    """Get the start and end indices for each worker."""
-    k = ceil(dataset_len / num_workers)
-    l = [(x - k, x) for x in range(k, dataset_len, k)]
-    l.append((l[-1][1], dataset_len))
+def split_indices_between_workers(indices: list, num_workers: int) -> list[list[int]]:
+    """Split indices between workers."""
+    k = ceil(len(indices) / num_workers)
+    l = [indices[x : x + k] for x in range(0, len(indices), k)]
     return l
 
 
