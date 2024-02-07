@@ -13,6 +13,7 @@ class Database:
         self.cursor = self.conn.cursor()
         self.schema = schema
         self.cursor.execute(f"CREATE TABLE IF NOT EXISTS {self.name} ({self._schema_to_sql()})")
+        self.cursor.execute(f"CREATE INDEX IF NOT EXISTS idx ON {self.name} (id)")
         self.conn.commit()
 
     def _dummies(self):
@@ -54,7 +55,6 @@ class Database:
         for idx, data in zip(idx_list, data):
             row = self._serialize(data)
             data_list.append((idx, *row))
-            print(idx)
         self.cursor.executemany(query, data_list)
         self.conn.commit()
 
