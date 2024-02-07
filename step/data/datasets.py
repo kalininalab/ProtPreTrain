@@ -63,14 +63,17 @@ class FoldCompDataset(Dataset):
         pre_transform=None,
         num_workers: int = 1,
         chunk_size: int = 1024,
+        schema: dict = dict(x=torch.long, pos=torch.float32),
+        **kwargs,
     ) -> None:
         self.num_workers = num_workers
         self.chunk_size = chunk_size
         self.db_name = db_name
         self.db = None
-        super().__init__(root=f"data/{db_name}", transform=transform, pre_transform=pre_transform)
+        self.schema = schema
+        super().__init__(root=f"data/{db_name}", transform=transform, pre_transform=pre_transform, **kwargs)
         if self.db is None:
-            self.db = Database(self.processed_paths[0])
+            self.db = Database(self.processed_paths[0], schema=self.schema)
 
     @property
     def raw_file_names(self):
@@ -110,7 +113,7 @@ class FoldCompDataset(Dataset):
 
     def process(self) -> None:
         """Process the whole dataset for the dataset."""
-        self.db = Database(self.processed_paths[0])
+        self.db = Database(self.processed_paths[0], schema=self.schema)
         os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
         print("Launching monitoring process...")
         stop_event = multiprocessing.Event()
@@ -142,6 +145,14 @@ class FoldCompDataset(Dataset):
         """Remove the temporary files."""
         p = Path(self.processed_dir)
         shutil.rmtree(p / "data")
+
+    def __getitem__(self, idx):
+        data = self.db.multi_get(idx)
+        if self.transform:
+            data = [self.transform(x) for x in data]
+            if len(data) == 1:
+                data = data[0]
+        return data
 
     def get(self, idx):
         return self.db.get(idx)
