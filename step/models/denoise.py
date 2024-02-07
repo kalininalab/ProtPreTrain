@@ -30,7 +30,9 @@ class RedrawProjection:
             return
         if self.num_last_redraw >= self.redraw_interval:
             fast_attentions = [
-                module for module in self.model.modules() if isinstance(module, pyg.nn.attention.PerformerAttention)
+                module
+                for module in self.model.modules()
+                if isinstance(module, pyg.nn.attention.PerformerAttention)
             ]
             for fast_attention in fast_attentions:
                 fast_attention.redraw_projection_matrix()
@@ -75,7 +77,11 @@ class DenoiseModel(LightningModule):
                 torch.nn.Linear(hidden_dim, hidden_dim),
             )
             conv = pyg.nn.GPSConv(
-                hidden_dim, pyg.nn.GINConv(nn), heads=heads, attn_type=attn_type, attn_kwargs={"dropout": dropout}
+                hidden_dim,
+                pyg.nn.GINConv(nn),
+                heads=heads,
+                attn_type=attn_type,
+                attn_kwargs={"dropout": dropout},
             )
             self.convs.append(conv)
         self.noise_pred = SimpleMLP(hidden_dim, hidden_dim, 3, dropout)
@@ -136,7 +142,9 @@ class DenoiseModel(LightningModule):
         noise_loss = F.mse_loss(batch.noise_pred, batch.noise)
         if self.predict_all:
             pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x)
-            acc = metrics.functional.accuracy(batch.type_pred, batch.orig_x, task="multiclass", num_classes=20)
+            acc = metrics.functional.accuracy(
+                batch.type_pred, batch.orig_x, task="multiclass", num_classes=20
+            )
         else:
             pred_loss = F.cross_entropy(batch.type_pred, batch.orig_x[batch.mask])
             acc = metrics.functional.accuracy(
@@ -144,7 +152,12 @@ class DenoiseModel(LightningModule):
             )
         loss = noise_loss * self.alpha + (1 - self.alpha) * pred_loss
         self.log_dict(
-            {"train/loss": loss, "train/noise_loss": noise_loss, "train/pred_loss": pred_loss, "train/pred_acc": acc},
+            {
+                "train/loss": loss,
+                "train/noise_loss": noise_loss,
+                "train/pred_loss": pred_loss,
+                "train/pred_acc": acc,
+            },
             batch_size=batch.num_graphs,
             add_dataloader_idx=False,
             on_step=True,

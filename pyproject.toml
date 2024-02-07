@@ -1,5 +1,5 @@
 [tool.black]
-line-length = 119
+line-length = 109
 target-version = ['py36', 'py37', 'py38']
 include = '\.pyi?$'
 
@@ -22,7 +22,7 @@ color = true
 
 [tool.isort]
 profile = "black"
-line_length = 119
+line_length = 109
 
 [tool.mypy]
 ignore_missing_imports = true
@@ -37,7 +37,7 @@ markers = [
 
 [tool.pylint.'MESSAGES CONTROL']
 disable = ["E1101", "E0611", "C0114", "R0901", "W0221", "R0913", "C0103", "W0201", "C0301", "D107", "D100"]
-line-length = 119
+line-length = 109
 
 [tool.pydocstyle]
 ignore = ["D1"]

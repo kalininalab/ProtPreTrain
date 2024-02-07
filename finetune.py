@@ -14,7 +14,12 @@ torch.multiprocessing.set_sharing_strategy("file_system")
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability", "homology", "prostt5"])
+parser.add_argument(
+    "--dataset",
+    type=str,
+    default="fluorescence",
+    choices=["fluorescence", "stability", "homology", "prostt5"],
+)
 parser.add_argument("--model_source", type=str, choices=["wandb", "huggingface", "ankh"])
 parser.add_argument("--model", type=str)
 parser.add_argument("--hidden_dim", type=int, default=512)
@@ -24,7 +29,9 @@ parser.add_argument("--num_workers", type=int, default=0)
 parser.add_argument("--ablation", type=str, default="none", choices=["none", "sequence", "structure"])
 config = parser.parse_args()
 
-logger = pl.loggers.WandbLogger(project=config.dataset, log_model=True, dir="wandb", config=config, entity="rindti")
+logger = pl.loggers.WandbLogger(
+    project=config.dataset, log_model=True, dir="wandb", config=config, entity="rindti"
+)
 
 config = wandb.config
 print(config)

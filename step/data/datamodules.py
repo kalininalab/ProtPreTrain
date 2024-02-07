@@ -324,7 +324,9 @@ class DownstreamDataModule(LightningDataModule):
                 ).to("cuda")
                 try:
                     with torch.no_grad():
-                        embedding_repr = model(token_encoding.input_ids, attention_mask=token_encoding.attention_mask)
+                        embedding_repr = model(
+                            token_encoding.input_ids, attention_mask=token_encoding.attention_mask
+                        )
                 except RuntimeError:
                     print("RuntimeError during embedding for {} (L={})".format(i, len(i.seq)))
                     continue

@@ -3,25 +3,32 @@ import os
 import shutil
 import time
 from pathlib import Path
-from .database import Database
+from typing import Callable
 
 import foldcomp
+import numpy as np
 import pandas as pd
 import torch
 from joblib import Parallel, delayed
-from torch_geometric.data import Data, InMemoryDataset, extract_tar, Dataset
+from torch_geometric.data import Data, Dataset, InMemoryDataset, extract_tar
 from tqdm.auto import tqdm
-import numpy as np
-from typing import Callable
 
 import wandb
 
+from .database import Database
 from .parsers import ProtStructure
-from .utils import apply_edits, compute_edits, extract_uniprot_id, split_indices_between_workers, save_file, smiles_to_ecfp
+from .utils import (
+    apply_edits,
+    compute_edits,
+    extract_uniprot_id,
+    save_file,
+    smiles_to_ecfp,
+    split_indices_between_workers,
+)
 
 
 def process_chunk(
-    indices:list,
+    indices: list,
     chunk_id: int,
     db_file: str,
     processed_dir: str,
@@ -110,18 +117,22 @@ class FoldCompDataset(Dataset):
             self.merge_batches()
             time.sleep(1)
 
-    def process(self) -> None:
+    def process(self, indices: list = None) -> None:
         """Process the whole dataset for the dataset."""
         self.db = Database(self.processed_paths[0], schema=self.schema)
         os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
+        with foldcomp.open(self.raw_paths[0]) as db:
+            num_entries = len(db)
+        if indices is None:
+            chunk_indices = split_indices_between_workers(list(range(num_entries)), self.num_workers)
+        else:
+            chunk_indices = split_indices_between_workers(indices, self.num_workers)
+            self.clean()
         print("Launching monitoring process...")
         stop_event = multiprocessing.Event()
         monitor_process = multiprocessing.Process(target=self.monitor_data_folder, args=(stop_event,))
         monitor_process.start()
         print("Processing chunks in parallel...")
-        with foldcomp.open(self.raw_paths[0]) as db:
-            num_entries = len(db)
-        chunk_indices = split_indices_between_workers(list(range(num_entries)), self.num_workers)
         Parallel(n_jobs=self.num_workers)(
             delayed(process_chunk)(
                 indices,
@@ -139,7 +150,7 @@ class FoldCompDataset(Dataset):
         print("Cleaning up...")
         self.clean()
 
-    def _check_resume_needed(self):
+    def _check_resume_needed(self) -> bool:
         """Check if everything is already processed."""
         if Path(self.processed_paths[0]).is_file():
             if self.db is None:
@@ -149,13 +160,13 @@ class FoldCompDataset(Dataset):
                 return False
         return True
 
-    def get_unprocessed_indices(self):
+    def get_unprocessed_indices(self) -> list[int]:
         """Get the indices that are not in the database."""
         db_indices = set(self.db.get_all_indices())
         with foldcomp.open(self.raw_paths[0]) as db:
             n = len(db)
         all_indices = set(range(n))
-        return all_indices - db_indices
+        return list(all_indices - db_indices)
 
     def clean(self):
         """Remove the temporary files."""

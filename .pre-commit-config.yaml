@@ -8,7 +8,7 @@ repos:
         args: [--remove-cell-metadata, --remove-kernel-metadata]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v4.5.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -18,19 +18,19 @@ repos:
       - id: check-merge-conflict
       - id: check-case-conflict
   - repo: https://github.com/timothycrosley/isort
-    rev: 5.12.0
+    rev: 5.13.2
     hooks:
       - id: isort
   - repo: https://github.com/ambv/black
-    rev: 23.3.0
+    rev: 24.1.1
     hooks:
       - id: black
   - repo: https://github.com/pycqa/flake8
-    rev: 6.0.0
+    rev: 7.0.0
     hooks:
       - id: flake8
   - repo: https://github.com/snakemake/snakefmt
-    rev: v0.8.4
+    rev: v0.10.0
     hooks:
       - id: snakefmt
   - repo: https://github.com/econchick/interrogate

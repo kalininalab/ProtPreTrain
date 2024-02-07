@@ -129,7 +129,9 @@ class MaskTypeBERT(BaseTransform):
         batch.orig_x = batch.x[indices].clone()
         batch.mask = indices
         mask_indices = indices[:num_masked_nodes]  # All nodes that are masked
-        mut_indices = indices[num_masked_nodes : num_masked_nodes + num_mutated_nodes]  # All nodes that are mutated
+        mut_indices = indices[
+            num_masked_nodes : num_masked_nodes + num_mutated_nodes
+        ]  # All nodes that are mutated
         batch.x[mask_indices] = 20
         batch.x[mut_indices] = torch.randint_like(batch.x[mut_indices], low=0, high=20)
         return batch
@@ -158,7 +160,9 @@ class SequenceOnly:
 
     def __call__(self, batch) -> torch.Tensor:
         n = batch.x.size(0)
-        batch.pos = torch.stack([torch.arange(0, n) * 3.8 - (3.8 * (n - 1) / 2), torch.zeros(n), torch.zeros(n)], dim=1)
+        batch.pos = torch.stack(
+            [torch.arange(0, n) * 3.8 - (3.8 * (n - 1) / 2), torch.zeros(n), torch.zeros(n)], dim=1
+        )
         return batch
 
 

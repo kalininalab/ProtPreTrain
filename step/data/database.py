@@ -1,11 +1,11 @@
 import sqlite3
-from torch_geometric.data import Data
-import torch
+
 import numpy as np
+import torch
+from torch_geometric.data import Data
 
 
 class Database:
-
     def __init__(self, filename: str, schema: dict):
         self.filename = filename
         self.name = "FoldCompDataset"
