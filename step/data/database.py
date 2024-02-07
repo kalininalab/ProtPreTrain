@@ -6,70 +6,73 @@ import numpy as np
 
 class Database:
 
-    def __init__(self, filename: str):
+    def __init__(self, filename: str, schema: dict):
         self.filename = filename
         self.name = "FoldCompDataset"
         self.conn = sqlite3.connect(filename)
         self.cursor = self.conn.cursor()
-        self.cursor.execute(
-            f"""
-        CREATE TABLE IF NOT EXISTS {self.name} (
-            id INTEGER PRIMARY KEY,
-            x BLOB NOT NULL,
-            edge_index BLOB NOT NULL,
-            pos BLOB NOT NULL,
-            pe BLOB NOT NULL,
-            uniprot_id TEXT
-        )
-        """
-        )
-        self.cursor.execute(f"CREATE INDEX IF NOT EXISTS idx ON {self.name} (id)")
+        self.schema = schema
+        self.cursor.execute(f"CREATE TABLE IF NOT EXISTS {self.name} ({self._schema_to_sql()})")
         self.conn.commit()
 
-    def insert(self, index: int, data: dict) -> None:
-        query = f"INSERT INTO {self.name} (id, x, edge_index, pos, pe, uniprot_id) VALUES (?, ?, ?, ?, ?, ?)"
-        self.cursor.execute(
-            query,
-            (
-                index,
-                data["x"].numpy().tobytes(),
-                data["edge_index"].numpy().tobytes(),
-                data["pos"].numpy().tobytes(),
-                data["pe"].numpy().tobytes(),
-                data["uniprot_id"],
-            ),
-        )
-        self.conn.commit()
+    def _dummies(self):
+        return ",".join(["?"] * len(self.schema))
+
+    def _schema_to_sql(self) -> str:
+        res = ["id INTEGER PRIMARY KEY"]
+        for k, v in self.schema.items():
+            if isinstance(v, int):
+                dtype = "INTEGER"
+            elif isinstance(v, str):
+                dtype = "TEXT"
+            else:
+                dtype = "BLOB NOT NULL"
+            res.append(f"{k} {dtype}")
+        return ", ".join(res)
+
+    def _serialize(self, data: dict) -> list:
+        row = []
+        for k in self.schema.keys():
+            if isinstance(data[k], torch.Tensor):
+                row.append(data[k].numpy().tobytes())
+            else:
+                row.append(data[k])
+        return row
+
+    def _deserialize(self, row: tuple) -> Data:
+        res = {}
+        for idx, (k, v) in enumerate(self.schema.items()):
+            if isinstance(v, torch.Tensor):
+                res[k] = torch.frombuffer(row[idx + 1], dtype=v)
+            else:
+                res[k] = row[idx + 1]
+        return Data.from_dict(res)
 
     def multi_insert(self, idx_list: list[int], data: list[dict]) -> None:
-        query = f"INSERT INTO {self.name} (id, x, edge_index, pos, pe, uniprot_id) VALUES (?, ?, ?, ?, ?, ?)"
-        self.cursor.executemany(
-            query,
-            [
-                (
-                    idx,
-                    data["x"].numpy().tobytes(),
-                    data["edge_index"].numpy().tobytes(),
-                    data["pos"].numpy().tobytes(),
-                    data["pe"].numpy().tobytes(),
-                    data["uniprot_id"],
-                )
-                for idx, data in zip(idx_list, data)
-            ],
-        )
+        query = f"INSERT INTO {self.name} (id, {','.join(self.schema.keys())}) VALUES (?, {self._dummies()})"
+        data_list = []
+        for idx, data in zip(idx_list, data):
+            row = self._serialize(data)
+            data_list.append((idx, *row))
+            print(idx)
+        self.cursor.executemany(query, data_list)
         self.conn.commit()
 
-    def get(self, idx: int) -> Data:
-        self.cursor.execute(f"SELECT * FROM FoldCompDataset WHERE id={idx}")
-        row = self.cursor.fetchone()
-        data = Data(
-            x=torch.frombuffer(row[1], dtype=torch.long).clone(),
-            edge_index=torch.frombuffer(row[2], dtype=torch.long).clone(),
-            pos=torch.frombuffer(row[3], dtype=torch.float32).clone(),
-            pe=torch.frombuffer(row[4], dtype=torch.float32).clone(),
-            uniprot_id=row[5],
-        )
-        return data
+    def multi_get(self, idx) -> list:
+        if isinstance(idx, int):
+            idx_as_list = [idx]
+        elif isinstance(idx, slice):
+            start, stop, step = idx.indices(len(self))
+            idx_as_list = list(range(start, stop, step))
+        elif isinstance(idx, list):
+            idx_as_list = idx
+        query = f"SELECT * FROM FoldCompDataset WHERE id IN ({','.join('?' * len(idx_as_list))})"
+        self.cursor.execute(query, idx_as_list)
+        rows = self.cursor.fetchall()
+        return [self._deserialize(row) for row in rows]
+
+    def __getitem__(self, idx):
+        return self.multi_get(idx)
 
     def __len__(self):
         self.cursor.execute(f"SELECT COUNT(id) FROM {self.name}")
