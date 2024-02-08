@@ -1,11 +1,12 @@
 import sqlite3
 
-import numpy as np
 import torch
-from torch_geometric.data import Data
+from torch_geometric.data import Data, SQLiteDatabase
 
 
-class Database:
+class Database(SQLiteDatabase):
+    """Database for FoldCompDataset. It uses sqlite3 to store the data."""
+
     def __init__(self, filename: str, schema: dict):
         self.filename = filename
         self.name = "FoldCompDataset"
@@ -31,34 +32,20 @@ class Database:
             res.append(f"{k} {dtype}")
         return ", ".join(res)
 
-    def _serialize(self, data: dict) -> list:
-        row = []
-        for k in self.schema.keys():
-            if isinstance(data[k], torch.Tensor):
-                row.append(data[k].numpy().tobytes())
-            else:
-                row.append(data[k])
-        return row
-
-    def _deserialize(self, row: tuple) -> Data:
-        res = {}
-        for idx, (k, v) in enumerate(self.schema.items()):
-            if isinstance(v, torch.Tensor):
-                res[k] = torch.frombuffer(row[idx + 1], dtype=v)
-            else:
-                res[k] = row[idx + 1]
-        return Data.from_dict(res)
-
     def multi_insert(self, idx_list: list[int], data: list[dict]) -> None:
+        """Insert multiple rows into the database."""
         query = f"INSERT INTO {self.name} (id, {','.join(self.schema.keys())}) VALUES (?, {self._dummies()})"
         data_list = []
         for idx, data in zip(idx_list, data):
             row = self._serialize(data)
+            print((idx, *row))
+            raise ValueError
             data_list.append((idx, *row))
         self.cursor.executemany(query, data_list)
         self.conn.commit()
 
     def multi_get(self, idx) -> list:
+        """Get multiple rows from the database."""
         if isinstance(idx, int):
             idx_as_list = [idx]
         elif isinstance(idx, slice):
@@ -78,9 +65,7 @@ class Database:
         self.cursor.execute(f"SELECT COUNT(id) FROM {self.name}")
         return self.cursor.fetchone()[0]
 
-    def close(self):
-        self.conn.close()
-
-    def get_all_indices(self):
+    def get_all_indices(self) -> list[int]:
+        """Get all indices from the database."""
         self.cursor.execute(f"SELECT id FROM {self.name}")
         return [row[0] for row in self.cursor.fetchall()]

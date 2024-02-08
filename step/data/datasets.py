@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import torch
 from joblib import Parallel, delayed
-from torch_geometric.data import Data, Dataset, InMemoryDataset, extract_tar
+from torch_geometric.data import Data, Dataset, InMemoryDataset, SQLiteDatabase, extract_tar
 from tqdm.auto import tqdm
 
 import wandb
@@ -64,22 +64,32 @@ class FoldCompDataset(Dataset):
 
     def __init__(
         self,
-        db_name: str = "afdb_rep_v4",
+        db_name: str,
+        schema: dict,
         transform=None,
         pre_transform=None,
         num_workers: int = 1,
         chunk_size: int = 1024,
-        schema: dict = dict(x=torch.long, pos=torch.float32),
         **kwargs,
     ) -> None:
         self.num_workers = num_workers
         self.chunk_size = chunk_size
         self.db_name = db_name
-        self.db = None
+        self._db = None
+        self._numel = None
         self.schema = schema
         super().__init__(root=f"data/{db_name}", transform=transform, pre_transform=pre_transform, **kwargs)
-        if self.db is None:
-            self.db = Database(self.processed_paths[0], schema=self.schema)
+        if self._check_resume_needed():
+            self.merge_batches()
+            indices = self.get_unprocessed_indices()
+            self.process(indices)
+
+    @property
+    def db(self) -> Database:
+        """Get the database object."""
+        if self._db is None:
+            self._db = SQLiteDatabase(self.processed_paths[0], "FoldCompDatabase", schema=self.schema)
+        return self._db
 
     @property
     def raw_file_names(self):
@@ -108,7 +118,7 @@ class FoldCompDataset(Dataset):
         for data_file in data_dir.glob("data*.pt"):
             if data_file.is_file():
                 data_dict = torch.load(data_file)
-                self.db.multi_insert(data_dict.keys(), data_dict.values())
+                self.db.multi_insert(list(data_dict.keys()), list(data_dict.values()))
                 data_file.unlink()
 
     def monitor_data_folder(self, stop_event: multiprocessing.Event):
@@ -119,15 +129,18 @@ class FoldCompDataset(Dataset):
 
     def process(self, indices: list = None) -> None:
         """Process the whole dataset for the dataset."""
-        self.db = Database(self.processed_paths[0], schema=self.schema)
         os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
         with foldcomp.open(self.raw_paths[0]) as db:
             num_entries = len(db)
         if indices is None:
+            print("Processing from scratch...")
             chunk_indices = split_indices_between_workers(list(range(num_entries)), self.num_workers)
         else:
+            print("Resuming unfinished processing...")
             chunk_indices = split_indices_between_workers(indices, self.num_workers)
             self.clean()
+            os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
+
         print("Launching monitoring process...")
         stop_event = multiprocessing.Event()
         monitor_process = multiprocessing.Process(target=self.monitor_data_folder, args=(stop_event,))
@@ -153,12 +166,15 @@ class FoldCompDataset(Dataset):
     def _check_resume_needed(self) -> bool:
         """Check if everything is already processed."""
         if Path(self.processed_paths[0]).is_file():
-            if self.db is None:
-                self.db = Database(self.processed_paths[0])
             foldcomp_db = foldcomp.open(self.raw_paths[0])
-            if len(foldcomp_db) == len(self.db):
-                return False
-        return True
+            foldcomp_len = len(foldcomp_db)
+            self_len = len(self.db)
+            if foldcomp_len != self_len:
+                print(
+                    f"Foldcomp database has {foldcomp_len} entries, processed dataset has {self_len}. Resuming..."
+                )
+                return True
+        return False
 
     def get_unprocessed_indices(self) -> list[int]:
         """Get the indices that are not in the database."""
@@ -173,8 +189,10 @@ class FoldCompDataset(Dataset):
         p = Path(self.processed_dir)
         shutil.rmtree(p / "data")
 
-    def __getitem__(self, idx):
-        data = self.db.multi_get(idx)
+    def __getitem__(self, idx) -> Data:
+        if isinstance(idx, int):
+            idx = [idx]
+        data = [Data.from_dict(x) for x in self.db.multi_get(idx)]
         if self.transform:
             data = [self.transform(x) for x in data]
             if len(data) == 1:
@@ -185,7 +203,9 @@ class FoldCompDataset(Dataset):
         return self.db.get(idx)
 
     def len(self):
-        return len(self.db)
+        if self._numel is None:
+            self._numel = len(self.db)
+        return self._numel
 
 
 class DownstreamDataset(InMemoryDataset):
