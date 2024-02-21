@@ -60,8 +60,8 @@ class FoldCompDataset(Dataset):
 
     def process_chunk(self, start_num: int, end_num: int, chunk_id: int):
         """Process a single chunk of the database. This is done in parallel."""
-        cpu_count = multiprocessing.cpu_count()
-        torch.set_num_threads(floor(cpu_count / self.num_workers))
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
         with foldcomp.open(self.raw_paths[0]) as db:
             for idx in tqdm(range(start_num, end_num), smoothing=0.1, leave=True, position=chunk_id):
                 name, pdb = db[idx]
