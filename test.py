@@ -24,11 +24,12 @@ ds = FoldCompDataset(
         ]
     ),
     num_workers=16,
+    chunk_size=4096,
 )
 
-print(f"Length: {len(ds)}")
+# print(f"Length: {len(ds)}")
 
-number = 10
-len_time = timeit.timeit(lambda: len(ds), number=number) / number * 1000
-get_time = timeit.timeit(lambda: ds[0], number=number) / number * 1000
-print(f"Len time: {len_time}ms, Get time: {get_time}ms")
+# number = 10
+# len_time = timeit.timeit(lambda: len(ds), number=number) / number * 1000
+# get_time = timeit.timeit(lambda: ds[0], number=number) / number * 1000
+# print(f"Len time: {len_time}ms, Get time: {get_time}ms")

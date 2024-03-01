@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import foldcomp
+import h5py
+import numpy as np
 import pandas as pd
 import torch
 from joblib import Parallel, delayed
@@ -29,10 +31,14 @@ class FoldCompDataset(Dataset):
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         num_workers: int = 16,
+        chunk_size: int = 4096,
     ) -> None:
+        torch.set_num_interop_threads(1)
+        torch.set_num_threads(1)
         self.db_name = db_name
         self.pre_transform = pre_transform
         self.num_workers = num_workers
+        self.chunk_size = chunk_size
         super().__init__(root=f"data/{db_name}", transform=transform, pre_transform=pre_transform)
 
     @property
@@ -43,7 +49,7 @@ class FoldCompDataset(Dataset):
     @property
     def processed_file_names(self):
         """Files that have to be present in the processed directory, skip some for speed."""
-        return [f"data/data_{self.len() - 1}.pt"]
+        return [f"data/chunk_{a}.h5" for a, _ in self._get_chunks()]
 
     @property
     def _db_extensions(self):
@@ -58,35 +64,58 @@ class FoldCompDataset(Dataset):
         foldcomp.setup(self.raw_file_names[0])
         os.chdir(current_dir)
 
-    def process_chunk(self, start_num: int, end_num: int, chunk_id: int):
+    def process_chunk(self, start_num: int, end_num: int):
         """Process a single chunk of the database. This is done in parallel."""
-        torch.set_num_threads(1)
-        torch.set_num_interop_threads(1)
+        data_dict = {}
         with foldcomp.open(self.raw_paths[0]) as db:
-            for idx in tqdm(range(start_num, end_num), smoothing=0.1, leave=True, position=chunk_id):
+            for idx in range(start_num, end_num):
                 name, pdb = db[idx]
                 ps = ProtStructure(pdb)
                 data = Data.from_dict(ps.get_graph())
                 data.uniprot_id = extract_uniprot_id(name)
                 if self.pre_transform:
                     data = self.pre_transform(data)
-                torch.save(data, f"{self.processed_dir}/data/data_{idx}.pt")
+                data_dict[idx] = data
+        with h5py.File(self._chunk_name(start_num), "w") as h5py_file:
+            for idx, data in data_dict.items():
+                group = h5py_file.create_group(f"data_{idx}")
+                for k, v in data.items():
+                    group.create_dataset(k, data=v)
+
+    def _get_chunks(self) -> List[tuple[int, int]]:
+        with foldcomp.open(self.raw_paths[0]) as db:
+            num_entries = len(db)
+        l = [(x, x + self.chunk_size) for x in range(0, num_entries, self.chunk_size)]
+        l[-1] = (l[-1][0], num_entries)
+        return l
+
+    def _chunk_name(self, start_num: int) -> str:
+        return f"{self.processed_dir}/data/chunk_{start_num}.h5"
 
     def process(self) -> None:
         """Process the whole dataset for the dataset."""
         os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
         print("Processing chunks in parallel...")
-        with foldcomp.open(self.raw_paths[0]) as db:
-            num_entries = len(db)
-        chunk_indices = get_start_end(num_entries, self.num_workers)
         Parallel(n_jobs=self.num_workers)(
-            delayed(self.process_chunk)(start, finish, idx) for idx, (start, finish) in enumerate(chunk_indices)
+            delayed(self.process_chunk)(start, finish) for start, finish in self._get_chunks()
         )
-        self.clean()
 
     def get(self, idx: int) -> Any:
         """Get a single datapoint from the dataset."""
-        return torch.load(f"{self.processed_dir}/data/data_{idx}.pt")
+        filename = self._chunk_name(idx // self.chunk_size * self.chunk_size)
+        with h5py.File(filename, "r") as h5py_file:
+            group = h5py_file[f"data_{idx}"]
+            data = {}
+            for k, v in group.items():
+                if isinstance(v, h5py.Dataset):
+                    if v.shape == ():
+                        data[k] = str(v[()], "utf-8")
+                    else:
+                        data[k] = torch.from_numpy(v[:])
+                else:
+                    data[k] = v
+            data = Data.from_dict(data)
+            return data
 
     def len(self):
         with foldcomp.open(self.raw_paths[0]) as db:
