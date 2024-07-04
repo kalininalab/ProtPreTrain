@@ -7,7 +7,7 @@ import torch
 import wandb
 from step.data import FluorescenceDataModule, HomologyDataModule, StabilityDataModule
 from step.data.datamodules import DTIDataModule
-from step.models import HomologyModel, RegressionModel, DTIModel
+from step.models import DTIModel, HomologyModel, RegressionModel
 
 # Ignore all deprecation warnings
 torch.set_float32_matmul_precision("medium")
@@ -15,7 +15,9 @@ torch.multiprocessing.set_sharing_strategy("file_system")
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability", "homology", "dti"])
+parser.add_argument(
+    "--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability", "homology", "dti"]
+)
 parser.add_argument("--model_source", type=str, choices=["wandb", "huggingface", "ankh", "prostt5"])
 parser.add_argument("--model", type=str)
 parser.add_argument("--hidden_dim", type=int, default=512)
@@ -24,6 +26,7 @@ parser.add_argument("--batch_size", type=int, default=256)
 parser.add_argument("--num_workers", type=int, default=0)
 parser.add_argument("--ablation", type=str, default="none", choices=["none", "sequence", "structure"])
 config = parser.parse_args()
+wandb.init(project=config.dataset, config=config, entity="rindti")
 
 logger = pl.loggers.WandbLogger(project=config.dataset, log_model=True, dir="wandb", config=config, entity="rindti")
 

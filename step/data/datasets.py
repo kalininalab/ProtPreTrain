@@ -1,15 +1,9 @@
-import multiprocessing
 import os
-import shutil
-import subprocess
-import time
-from math import floor
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, List, Optional
 
 import foldcomp
 import h5py
-import numpy as np
 import pandas as pd
 import torch
 from joblib import Parallel, delayed
@@ -19,7 +13,7 @@ from tqdm.auto import tqdm
 import wandb
 
 from .parsers import ProtStructure
-from .utils import apply_edits, compute_edits, extract_uniprot_id, get_start_end, save_file, smiles_to_ecfp
+from .utils import apply_edits, compute_edits, extract_uniprot_id, smiles_to_ecfp
 
 
 class FoldCompDataset(Dataset):
@@ -33,8 +27,6 @@ class FoldCompDataset(Dataset):
         num_workers: int = 16,
         chunk_size: int = 4096,
     ) -> None:
-        torch.set_num_interop_threads(1)
-        torch.set_num_threads(1)
         self.db_name = db_name
         self.pre_transform = pre_transform
         self.num_workers = num_workers
@@ -66,6 +58,8 @@ class FoldCompDataset(Dataset):
 
     def process_chunk(self, start_num: int, end_num: int):
         """Process a single chunk of the database. This is done in parallel."""
+        torch.set_num_interop_threads(1)
+        torch.set_num_threads(1)
         data_dict = {}
         with foldcomp.open(self.raw_paths[0]) as db:
             for idx in range(start_num, end_num):
