@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import List, Literal
 
-import ankh
+# import ankh
 import torch
 import torch_geometric.transforms as T
 from pytorch_lightning import LightningDataModule, Trainer
@@ -181,6 +181,7 @@ class DownstreamDataModule(LightningDataModule):
                 device=0,
             )
         elif self.feature_extract_model_source == "ankh":
+            import ankh
             if self.feature_extract_model == "ankh-base":
                 model, tokenizer = ankh.load_base_model()
             elif self.feature_extract_model == "ankh-large":
