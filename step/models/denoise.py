@@ -74,7 +74,11 @@ class DenoiseModel(LightningModule):
                 torch.nn.Linear(hidden_dim, hidden_dim),
             )
             conv = pyg.nn.GPSConv(
-                hidden_dim, pyg.nn.GINConv(nn), heads=heads, attn_type=attn_type, attn_kwargs={"dropout": dropout}
+                hidden_dim,
+                pyg.nn.GINConv(nn),
+                heads=heads,
+                attn_type=attn_type,
+                attn_kwargs={"dropout": dropout},
             )
             self.convs.append(conv)
         self.noise_pred = SimpleMLP(hidden_dim, hidden_dim, 3, dropout)
@@ -143,7 +147,12 @@ class DenoiseModel(LightningModule):
             )
         loss = noise_loss * self.alpha + (1 - self.alpha) * pred_loss
         self.log_dict(
-            {"train/loss": loss, "train/noise_loss": noise_loss, "train/pred_loss": pred_loss, "train/pred_acc": acc},
+            {
+                "train/loss": loss,
+                "train/noise_loss": noise_loss,
+                "train/pred_loss": pred_loss,
+                "train/pred_acc": acc,
+            },
             batch_size=batch.num_graphs,
             add_dataloader_idx=False,
             on_step=True,

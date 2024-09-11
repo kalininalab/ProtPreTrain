@@ -1,6 +1,20 @@
 from argparse import ArgumentParser
 
-from step.utils import str_to_bool
+import pytorch_lightning as pl
+import torch
+import torch_geometric as pyg
+
+import wandb
+from step.data import (
+    FoldCompDataModule,
+    MaskType,
+    MaskTypeAnkh,
+    MaskTypeBERT,
+    PosNoise,
+    RandomWalkPE,
+)
+from step.models import DenoiseModel
+from step.utils import WandbArtifactModelCheckpoint, str_to_bool
 
 parser = ArgumentParser()
 parser.add_argument("--dataset", type=str, default="afdb_rep_v4")
@@ -29,15 +43,6 @@ parser.add_argument("--num_workers", type=int, default=16)
 
 args = parser.parse_args()
 
-import pytorch_lightning as pl
-import torch
-import torch_geometric as pyg
-from lightning.pytorch.strategies import DDPStrategy
-
-import wandb
-from step.data import FoldCompDataModule, MaskType, MaskTypeAnkh, MaskTypeBERT, PosNoise, RandomWalkPE
-from step.models import DenoiseModel
-from step.utils import WandbArtifactModelCheckpoint
 
 # Explicitly specify the process group backend if you choose to
 
@@ -48,7 +53,7 @@ config = vars(args)
 logger = pl.loggers.WandbLogger(
     project="step",
     entity="rindti",
-    settings=wandb.Settings(start_method="fork"),
+    # settings=wandb.Settings(start_method="fork"),
     config=config,
     log_model=False,
 )
@@ -63,7 +68,10 @@ datamodule = FoldCompDataModule(
         pyg.transforms.ToUndirected(),
         RandomWalkPE(args.walk_length, attr_name="pe", cuda=True),
     ],
-    transforms=[PosNoise(args.posnoise), masktype_transform[args.masktype](args.maskfrac)],
+    transforms=[
+        PosNoise(args.posnoise),
+        masktype_transform[args.masktype](args.maskfrac),
+    ],
     batch_sampling=args.batch_sampling,
     batch_size=args.batch_size,
     max_num_nodes=args.max_num_nodes,
