@@ -87,7 +87,7 @@ class Residue:
             y=float(line[42:50].strip()),
             z=float(line[50:58].strip()),
         )
-        
+
     def __repr__(self):
         return f"Residue {self.name} at ({self.x}, {self.y}, {self.z})"
 
@@ -162,7 +162,7 @@ class ProtStructure:
 
     def __len__(self):
         return len(self.residues)
-    
+
     def __repr__(self):
         return f"ProtStruct with {len(self)} residues"
 

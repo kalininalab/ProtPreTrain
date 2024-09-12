@@ -1,22 +1,26 @@
+import multiprocessing
 import os
+import shutil
+import time
+from math import floor
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import foldcomp
 import h5py
 import pandas as pd
 import torch
 from joblib import Parallel, delayed
-from torch_geometric.data import Data, Dataset, InMemoryDataset, extract_tar
+from torch_geometric.data import Data, InMemoryDataset, OnDiskDataset, extract_tar
 from tqdm.auto import tqdm
 
 import wandb
 
 from .parsers import ProtStructure
-from .utils import apply_edits, compute_edits, extract_uniprot_id, smiles_to_ecfp
+from .utils import apply_edits, compute_edits, extract_uniprot_id, get_start_end, save_file, smiles_to_ecfp
 
 
-class FoldCompDataset(Dataset):
+class FoldCompDataset(OnDiskDataset):
     """Save FoldSeekDB as a PyTorch Geometric dataset, using the on-disk format."""
 
     def __init__(
@@ -24,24 +28,26 @@ class FoldCompDataset(Dataset):
         db_name: str = "afdb_rep_v4",
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
-        num_workers: int = 16,
-        chunk_size: int = 4096,
+        backend: str = "sqlite",
+        num_workers: int = 1,
+        chunk_size: int = 1024,
     ) -> None:
         self.db_name = db_name
-        self.pre_transform = pre_transform
+        self._pre_transform = pre_transform
         self.num_workers = num_workers
         self.chunk_size = chunk_size
-        super().__init__(root=f"data/{db_name}", transform=transform, pre_transform=pre_transform)
+        schema = {
+            "x": {"dtype": torch.int64, "size": (-1,)},
+            "edge_index": {"dtype": torch.int64, "size": (2, -1)},
+            "uniprot_id": str,
+            "pe": {"dtype": torch.float32, "size": (-1, 20)},
+            "pos": {"dtype": torch.float32, "size": (-1, 3)},
+        }
+        super().__init__(root=f"data/{db_name}", transform=transform, backend=backend, schema=schema)
 
     @property
     def raw_file_names(self):
-        """Files that have to be present in the raw directory, foldcomp database."""
         return [self.db_name + x for x in self._db_extensions]
-
-    @property
-    def processed_file_names(self):
-        """Files that have to be present in the processed directory, skip some for speed."""
-        return [f"data/chunk_{a}.h5" for a, _ in self._get_chunks()]
 
     @property
     def _db_extensions(self):
@@ -56,65 +62,74 @@ class FoldCompDataset(Dataset):
         foldcomp.setup(self.raw_file_names[0])
         os.chdir(current_dir)
 
-    def process_chunk(self, start_num: int, end_num: int):
+    def process_chunk(self, start_num: int, end_num: int, chunk_id: int):
         """Process a single chunk of the database. This is done in parallel."""
-        torch.set_num_interop_threads(1)
-        torch.set_num_threads(1)
-        data_dict = {}
+        cpu_count = multiprocessing.cpu_count()
+        torch.set_num_threads(floor(cpu_count / self.num_workers))
         with foldcomp.open(self.raw_paths[0]) as db:
-            for idx in range(start_num, end_num):
+            data_list = []
+            for idx in tqdm(range(start_num, end_num), smoothing=0, leave=True, position=chunk_id):
                 name, pdb = db[idx]
                 ps = ProtStructure(pdb)
                 data = Data.from_dict(ps.get_graph())
                 data.uniprot_id = extract_uniprot_id(name)
-                if self.pre_transform:
-                    data = self.pre_transform(data)
-                data_dict[idx] = data
-        with h5py.File(self._chunk_name(start_num), "w") as h5py_file:
-            for idx, data in data_dict.items():
-                group = h5py_file.create_group(f"data_{idx}")
-                for k, v in data.items():
-                    group.create_dataset(k, data=v)
+                if self._pre_transform:
+                    data = self._pre_transform(data)
+                data_list.append(data.to_dict())
+                if len(data_list) >= self.chunk_size:
+                    save_file(data_list, f"{self.processed_dir}/data/data_{idx}.pt")
+                    data_list = []
+            save_file(data_list, f"{self.processed_dir}/data/data_{idx}.pt")
 
-    def _get_chunks(self) -> List[tuple[int, int]]:
-        with foldcomp.open(self.raw_paths[0]) as db:
-            num_entries = len(db)
-        l = [(x, x + self.chunk_size) for x in range(0, num_entries, self.chunk_size)]
-        l[-1] = (l[-1][0], num_entries)
-        return l
+    def merge_batches(self):
+        """Go through a folder, put all .pt files into the database."""
+        count = 0
+        data_dir = Path(self.processed_dir) / "data"
+        for data_file in data_dir.glob("data*.pt"):
+            if data_file.is_file():
+                data_list = torch.load(data_file)
+                self.extend(data_list)
+                data_file.unlink()
+        return count
 
-    def _chunk_name(self, start_num: int) -> str:
-        return f"{self.processed_dir}/data/chunk_{start_num}.h5"
+    def monitor_data_folder(self, stop_event):
+        """Monitor the data folder and update the database."""
+        while not stop_event.is_set():
+            self.merge_batches()
+            time.sleep(1)
 
     def process(self) -> None:
         """Process the whole dataset for the dataset."""
         os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
+        print("Launching monitoring process...")
+        stop_event = multiprocessing.Event()
+        monitor_process = multiprocessing.Process(target=self.monitor_data_folder, args=(stop_event,))
+        monitor_process.start()
         print("Processing chunks in parallel...")
-        Parallel(n_jobs=self.num_workers)(
-            delayed(self.process_chunk)(start, finish) for start, finish in self._get_chunks()
-        )
-
-    def get(self, idx: int) -> Any:
-        """Get a single datapoint from the dataset."""
-        filename = self._chunk_name(idx // self.chunk_size * self.chunk_size)
-        with h5py.File(filename, "r") as h5py_file:
-            group = h5py_file[f"data_{idx}"]
-            data = {}
-            for k, v in group.items():
-                if isinstance(v, h5py.Dataset):
-                    if v.shape == ():
-                        data[k] = str(v[()], "utf-8")
-                    else:
-                        data[k] = torch.from_numpy(v[:])
-                else:
-                    data[k] = v
-            data = Data.from_dict(data)
-            return data
-
-    def len(self):
         with foldcomp.open(self.raw_paths[0]) as db:
-            n = len(db)
-        return n
+            num_entries = len(db)
+        chunk_indices = get_start_end(num_entries, self.num_workers)
+        Parallel(n_jobs=self.num_workers)(
+            delayed(self.process_chunk)(start, finish, idx) for idx, (start, finish) in enumerate(chunk_indices)
+        )
+        stop_event.set()
+        monitor_process.join()
+        self.merge_batches()
+        print("Cleaning up...")
+        self.clean()
+
+    def clean(self):
+        """Remove the temporary files."""
+        p = Path(self.processed_dir)
+        shutil.rmtree(p / "data")
+
+    def serialize(self, data: Dict) -> Dict[str, Any]:
+        """To dict method for the database."""
+        return data
+
+    def deserialize(self, data: Dict[str, Any]) -> Data:
+        """From dict method for the database."""
+        return Data.from_dict(data)
 
 
 class DownstreamDataset(InMemoryDataset):
@@ -146,7 +161,7 @@ class DownstreamDataset(InMemoryDataset):
 
     def process(self):
         """Do the full run for the dataset."""
-        for split, idx in self.splits.items():
+        for _split, idx in self.splits.items():
             df = pd.read_json(self.raw_paths[idx])
             data_list = self._prepare_data(df)
 
