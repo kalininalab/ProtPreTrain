@@ -1,5 +1,6 @@
 import multiprocessing
 import os
+import pickle
 import shutil
 import time
 from math import floor
@@ -8,10 +9,11 @@ from typing import Any, Callable, Dict, List, Optional
 
 import foldcomp
 import h5py
+import lmdb
 import pandas as pd
 import torch
 from joblib import Parallel, delayed
-from torch_geometric.data import Data, InMemoryDataset, OnDiskDataset, extract_tar
+from torch_geometric.data import Data, Dataset, InMemoryDataset, extract_tar
 from tqdm.auto import tqdm
 
 import wandb
@@ -20,7 +22,7 @@ from .parsers import ProtStructure
 from .utils import apply_edits, compute_edits, extract_uniprot_id, get_start_end, save_file, smiles_to_ecfp
 
 
-class FoldCompDataset(OnDiskDataset):
+class FoldCompDataset(Dataset):
     """Save FoldSeekDB as a PyTorch Geometric dataset, using the on-disk format."""
 
     def __init__(
@@ -28,26 +30,42 @@ class FoldCompDataset(OnDiskDataset):
         db_name: str = "afdb_rep_v4",
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
-        backend: str = "sqlite",
         num_workers: int = 1,
-        chunk_size: int = 1024,
+        chunk_size: int = 1000,
     ) -> None:
         self.db_name = db_name
-        self._pre_transform = pre_transform
+        self.pre_transform = pre_transform
         self.num_workers = num_workers
         self.chunk_size = chunk_size
-        schema = {
-            "x": {"dtype": torch.int64, "size": (-1,)},
-            "edge_index": {"dtype": torch.int64, "size": (2, -1)},
-            "uniprot_id": str,
-            "pe": {"dtype": torch.float32, "size": (-1, 20)},
-            "pos": {"dtype": torch.float32, "size": (-1, 3)},
-        }
-        super().__init__(root=f"data/{db_name}", transform=transform, backend=backend, schema=schema)
+        self._env = None
+        super().__init__(root=f"data/{db_name}", transform=transform)
+
+    @property
+    def env(self):
+        """Initialize the LMDB environment for each worker process."""
+        if self._env is None:
+            self._env = lmdb.open(
+                f"data/{self.db_name}/processed/db.lmdb",
+                readonly=False,
+                lock=False,
+                map_size=int(1e12),
+            )
+        return self._env
+
+    def len(self):
+        """
+        Returns the length of the dataset (number of graphs in LMDB).
+        """
+        with foldcomp.open(self.raw_paths[0]) as db:
+            return len(db)
 
     @property
     def raw_file_names(self):
         return [self.db_name + x for x in self._db_extensions]
+
+    @property
+    def processed_file_names(self):
+        return ["db.lmdb"]
 
     @property
     def _db_extensions(self):
@@ -73,9 +91,12 @@ class FoldCompDataset(OnDiskDataset):
                 ps = ProtStructure(pdb)
                 data = Data.from_dict(ps.get_graph())
                 data.uniprot_id = extract_uniprot_id(name)
-                if self._pre_transform:
-                    data = self._pre_transform(data)
-                data_list.append(data.to_dict())
+                if self.pre_transform:
+                    data = self.pre_transform(data)
+                data = data.to_dict()
+                data["idx"] = idx
+                data["uniprot_id"] = name
+                data_list.append(data)
                 if len(data_list) >= self.chunk_size:
                     save_file(data_list, f"{self.processed_dir}/data/data_{idx}.pt")
                     data_list = []
@@ -92,6 +113,21 @@ class FoldCompDataset(OnDiskDataset):
                 data_file.unlink()
         return count
 
+    def extend(self, data_list: List[Dict[str, Any]]):
+        """Extend the database with a list of data."""
+        with self.env.begin(write=True) as txn:
+            for data in data_list:
+                # int key
+                key = str(data["idx"]).encode()
+                txn.put(key, pickle.dumps(data))
+
+    def get(self, idx: int) -> Dict[str, Any]:
+        """Get a single entry from the database."""
+        with self.env.begin() as txn:
+            key = str(idx).encode()
+            value = txn.get(key)
+            return Data.from_dict(pickle.loads(value))
+
     def monitor_data_folder(self, stop_event):
         """Monitor the data folder and update the database."""
         while not stop_event.is_set():
@@ -100,6 +136,7 @@ class FoldCompDataset(OnDiskDataset):
 
     def process(self) -> None:
         """Process the whole dataset for the dataset."""
+
         os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
         print("Launching monitoring process...")
         stop_event = multiprocessing.Event()
@@ -122,14 +159,6 @@ class FoldCompDataset(OnDiskDataset):
         """Remove the temporary files."""
         p = Path(self.processed_dir)
         shutil.rmtree(p / "data")
-
-    def serialize(self, data: Dict) -> Dict[str, Any]:
-        """To dict method for the database."""
-        return data
-
-    def deserialize(self, data: Dict[str, Any]) -> Data:
-        """From dict method for the database."""
-        return Data.from_dict(data)
 
 
 class DownstreamDataset(InMemoryDataset):
