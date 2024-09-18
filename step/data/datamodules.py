@@ -76,6 +76,7 @@ class FoldCompDataModule(LightningDataModule):
         """Load the individual datasets."""
         pre_transform = T.Compose(self.pre_transforms)
         transform = T.Compose(self.transforms)
+        print(pre_transform)
         self.train = FoldCompDataset(
             db_name=self.db_name,
             transform=transform,

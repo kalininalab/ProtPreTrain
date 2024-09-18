@@ -33,7 +33,7 @@ parser.add_argument("--maskfrac", type=float, default=0.15)
 parser.add_argument("--radius", type=int, default=10)
 parser.add_argument("--walk_length", type=int, default=20)
 parser.add_argument("--batch_sampling", type=str_to_bool, default=False)
-parser.add_argument("--max_num_nodes", type=int, default=4096, help="Max num nodes in a dynamic batch")
+parser.add_argument("--max_num_nodes", type=int, default=2048, help="Max num nodes in a dynamic batch")
 parser.add_argument("--batch_size", type=int, default=32)
 parser.add_argument("--max_epochs", type=int, default=10)
 parser.add_argument("--subset", type=int, default=None)
@@ -66,7 +66,7 @@ datamodule = FoldCompDataModule(
         pyg.transforms.NormalizeRotation(),
         pyg.transforms.RadiusGraph(args.radius),
         pyg.transforms.ToUndirected(),
-        RandomWalkPE(args.walk_length, attr_name="pe", cuda=True),
+        RandomWalkPE(args.walk_length, attr_name="pe", cuda=False),
     ],
     transforms=[
         PosNoise(args.posnoise),

@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import foldcomp
-import h5py
 import lmdb
 import pandas as pd
 import torch
@@ -31,14 +30,13 @@ class FoldCompDataset(Dataset):
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         num_workers: int = 1,
-        chunk_size: int = 1000,
+        chunk_size: int = 20,
     ) -> None:
         self.db_name = db_name
-        self.pre_transform = pre_transform
         self.num_workers = num_workers
         self.chunk_size = chunk_size
         self._env = None
-        super().__init__(root=f"data/{db_name}", transform=transform)
+        super().__init__(root=f"data/{db_name}", transform=transform, pre_transform=pre_transform)
 
     @property
     def env(self):
