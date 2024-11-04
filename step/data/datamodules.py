@@ -83,9 +83,9 @@ class FoldCompDataModule(LightningDataModule):
             transform=transform,
             pre_transform=pre_transform,
             num_workers=self.num_workers,
-        )
-        if self.subset:
-            self.train = self.train[: self.subset]
+        ).to_dataset()
+        # if self.subset:
+            # self.train = self.train[: self.subset]
 
     def _dl_kwargs(self, shuffle: bool = False):
         return dict(

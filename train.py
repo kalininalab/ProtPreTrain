@@ -32,7 +32,6 @@ args = parser.parse_args()
 import pytorch_lightning as pl
 import torch
 import torch_geometric as pyg
-from lightning.pytorch.strategies import DDPStrategy
 
 import wandb
 from step.data import FoldCompDataModule, MaskType, MaskTypeAnkh, MaskTypeBERT, PosNoise, RandomWalkPE
@@ -79,7 +78,7 @@ trainer = pl.Trainer(
     max_epochs=args.max_epochs,
     precision="bf16-mixed",
     strategy="auto",
-    devices=4,
+    devices=-1,
     num_nodes=args.num_nodes,
     callbacks=[
         WandbArtifactModelCheckpoint(
