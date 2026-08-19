@@ -46,7 +46,7 @@ class FoldCompDataModule(LightningDataModule):
         self.max_num_nodes = max_num_nodes
         self.subset = subset
 
-    def _get_dataloader(self, ds: Dataset) -> DataLoader:
+    def _get_dataloader(self, ds: Dataset, shuffle: bool = False) -> DataLoader:
         if self.batch_sampling:
             assert self.max_num_nodes > 0
             if self.shuffle:
@@ -68,11 +68,11 @@ class FoldCompDataModule(LightningDataModule):
                 pin_memory=True,
             )
         else:
-            return DataLoader(ds, **self._dl_kwargs(False))
+            return DataLoader(ds, **self._dl_kwargs(shuffle))
 
     def train_dataloader(self):
         """Train dataloader."""
-        return self._get_dataloader(self.train)
+        return self._get_dataloader(self.train, shuffle=True)
 
     def setup(self, stage: str = None):
         """Load the individual datasets."""
@@ -132,7 +132,7 @@ class DownstreamDataModule(LightningDataModule):
                     T.NormalizeRotation(),
                     T.RadiusGraph(self.radius),
                     T.ToUndirected(),
-                    RandomWalkPE(self.walk_length, "pe"),
+                    RandomWalkPE(self.walk_length, "pe", cuda=torch.cuda.is_available()),
                 ]
             )
             transform = []
@@ -146,12 +146,12 @@ class DownstreamDataModule(LightningDataModule):
             transform = None
         return transform, pre_transform
 
-    def _get_dataloader(self, ds: Dataset) -> DataLoader:
-        return DataLoader(ds, **self._dl_kwargs(False))
+    def _get_dataloader(self, ds: Dataset, shuffle: bool = False) -> DataLoader:
+        return DataLoader(ds, **self._dl_kwargs(shuffle))
 
     def train_dataloader(self):
         """Train dataloader."""
-        return self._get_dataloader(self.train)
+        return self._get_dataloader(self.train, shuffle=True)
 
     def val_dataloader(self):
         """Validation dataloader."""

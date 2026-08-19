@@ -158,7 +158,7 @@ class DenoiseModel(LightningModule):
         x = self.feat_encode(batch.x)
         pos = self.pos_encode(batch.pos)
         pe = self.pe_norm(batch.pe)
-        pe = self.pe_encode(batch.pe)
+        pe = self.pe_encode(pe)
         x = torch.cat([x, pos, pe], dim=1)
         for conv in self.convs:
             x = conv(x, batch.edge_index, batch.batch)

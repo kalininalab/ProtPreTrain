@@ -1,19 +1,57 @@
-wandb
-torch-geometric
-torch-scatter
-torch-sparse
-torch-cluster
-pytorch-lightning
-yacs
-performer-pytorch
-torchmetrics
-ogb
-tensorboardX
-plotly
-pandas
-numpy
-scikit-learn
-foldcomp
-levenshtein
-ankh
-transformers
+# STEP — pinned environment (CPU build), verified working as a set.
+#
+# Verified on: Python 3.11.9, Linux x86_64, CPU-only.
+# The PyG binary extensions and pyg-lib are built against a SPECIFIC torch
+# version, so install them from the matching index (see step 2 below) — plain
+# `pip install -r requirements.txt` will NOT find them on PyPI.
+#
+#   1) pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cpu
+#   2) pip install -r requirements.txt -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
+#
+# For a CUDA build, swap "cpu" for your CUDA tag (e.g. cu121) in BOTH URLs and
+# drop the "+cpu" local-version suffixes below.
+
+# --- core: torch + PyTorch Geometric ------------------------------------
+torch==2.9.0
+torch_geometric==2.8.0.post1
+# pyg-lib is REQUIRED as of PyG 2.8: radius_graph (used by T.RadiusGraph in the
+# pre-transform pipeline) moved off torch-cluster onto pyg-lib.
+pyg-lib==0.7.0+pt29cpu
+# torch-cluster is still required by other PyG internals.
+torch-cluster==1.6.3+pt29cpu
+# torch-scatter / torch-sparse are OPTIONAL since PyG 2.3 — this codebase never
+# calls them directly. Pinned only to keep the env reproducible; safe to drop.
+torch-scatter==2.1.2+pt29cpu
+torch-sparse==0.6.18+pt29cpu
+
+# --- training loop ------------------------------------------------------
+lightning==2.6.5
+pytorch-lightning==2.6.5
+torchmetrics==1.9.0
+wandb==0.28.2
+
+# --- data pipeline ------------------------------------------------------
+foldcomp==0.0.7          # NOT upgraded to 1.0.0: major bump, untested here
+h5py==3.16.0             # was undeclared AND uninstalled
+joblib==1.5.3            # was undeclared
+tqdm==4.70.0             # was undeclared
+numpy==2.4.6
+scipy==1.17.1            # >=1.14 required for numpy 2 compatibility
+pandas==3.0.5
+scikit-learn==1.9.0
+levenshtein==0.25.1
+rdkit==2026.03.5         # was undeclared AND uninstalled (step/data/utils.py)
+
+# --- sequence-model baselines (finetune.py --model_source ankh|prostt5|huggingface)
+# transformers is CAPPED BELOW 5: transformers 5 removed the TensorFlow classes,
+# and ankh 1.10.0 (latest) imports TFT5EncoderModel at module load, which breaks
+# `import step.data.datamodules` entirely. Do not bump without replacing ankh.
+transformers==4.57.6
+ankh==1.10.0
+sentencepiece==0.1.99    # required by T5Tokenizer (ProstT5)
+
+# --- plotting / misc ----------------------------------------------------
+matplotlib==3.11.1
+plotly==6.9.0
+pyyaml==6.0.3
+beartype==0.22.9         # step/__init__.py runtime type-checks the package

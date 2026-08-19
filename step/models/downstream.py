@@ -79,7 +79,6 @@ class BaseModel(LightningModule):
             factor=0.1,
             patience=5,
             min_lr=1e-7,
-            verbose=True,
         )
         return [optimizer], [{"scheduler": scheduler, "monitor": "val/loss"}]
 

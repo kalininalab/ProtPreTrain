@@ -132,7 +132,9 @@ class DownstreamDataset(InMemoryDataset):
 
     def __init__(self, split: str, *, transform=None, pre_transform=None, pre_filter=None):
         super().__init__(self.root, transform, pre_transform, pre_filter)
-        self.data, self.slices = torch.load(self.processed_paths[self.splits[split]])
+        # weights_only=False is required: these archives hold pickled PyG Data
+        # objects, and torch>=2.6 defaults weights_only=True, which refuses them.
+        self.data, self.slices = torch.load(self.processed_paths[self.splits[split]], weights_only=False)
 
     def download(self):
         """Download the dataset from wandb."""

@@ -16,7 +16,7 @@ class RandomWalkPE(BaseTransform):
         self.cuda = cuda
 
     def forward(self, data: Data) -> Data:
-        if self.cuda:
+        if self.cuda and torch.cuda.is_available():
             if torch.cuda.device_count() > 1:
                 device = random.randint(0, torch.cuda.device_count() - 1)
                 data = data.to(f"cuda:{device}")
@@ -58,7 +58,7 @@ class PosNoise(BaseTransform):
         self.sigma = sigma
         self.plddt_dependent = plddt_dependent
 
-    def __call__(self, batch) -> torch.Tensor:
+    def forward(self, batch) -> torch.Tensor:
         noise = torch.randn_like(batch.pos) * self.sigma
         if self.plddt_dependent:
             noise *= 2 - batch.plddt.unsqueeze(-1) / 100
@@ -73,7 +73,7 @@ class MaskType(BaseTransform):
     def __init__(self, pick_prob: float):
         self.prob = pick_prob
 
-    def __call__(self, batch) -> torch.Tensor:
+    def forward(self, batch) -> torch.Tensor:
         mask = torch.rand_like(batch.x, dtype=torch.float32) < self.prob
         batch.orig_x = batch.x.clone()
         batch.x[mask] = 20
@@ -87,7 +87,7 @@ class MaskTypeAnkh(BaseTransform):
     def __init__(self, pick_prob: float):
         self.prob = pick_prob
 
-    def __call__(self, batch) -> torch.Tensor:
+    def forward(self, batch) -> torch.Tensor:
         N = batch.x.size(0)
         n = int(N * self.prob)
         mask = set()
@@ -99,16 +99,21 @@ class MaskTypeAnkh(BaseTransform):
             if subset.size(0) > 0:
                 mask.add(subset[random.randint(0, subset.size(0) - 1)].item())
         if n < 20:
-            mask = torch.tensor(list(mask))
+            indices = list(mask)
         else:
             all_indices = set(range(N))
             remaining_indices = list(all_indices - mask)
             random.shuffle(remaining_indices)
-            mask = list(mask) + remaining_indices[: n - len(mask)]
-            mask = torch.tensor(list(mask))
+            indices = list(mask) + remaining_indices[: n - len(mask)]
+        # Store as a boolean mask, not an index tensor: PyG concatenates custom
+        # attributes without adding node offsets, so per-graph indices silently
+        # point into the wrong graph once a batch is collated.
+        bool_mask = torch.zeros(N, dtype=torch.bool)
+        if indices:
+            bool_mask[torch.tensor(indices, dtype=torch.long)] = True
         batch.orig_x = batch.x.clone()
-        batch.x[mask] = 20
-        batch.mask = mask
+        batch.x[bool_mask] = 20
+        batch.mask = bool_mask
         return batch
 
 
@@ -120,14 +125,18 @@ class MaskTypeBERT(BaseTransform):
         self.mask_prob = mask_prob
         self.mut_prob = mut_prob
 
-    def __call__(self, batch) -> torch.Tensor:
+    def forward(self, batch) -> torch.Tensor:
         n = batch.x.size(0)
         num_changed_nodes = int(n * self.pick_prob)  # 0.15 in BERT paper
         num_masked_nodes = int(num_changed_nodes * self.mask_prob)  # 0.8 in BERT paper
         num_mutated_nodes = int(num_changed_nodes * self.mut_prob)  # 0.1 in BERT paper
         indices = torch.randperm(n)[:num_changed_nodes]  # All nodes that are changed in some way
-        batch.orig_x = batch.x[indices].clone()
-        batch.mask = indices
+        # orig_x must stay full-length: training_step indexes it as orig_x[mask]
+        # (predict_all=False) or compares it against per-node logits (predict_all=True).
+        batch.orig_x = batch.x.clone()
+        bool_mask = torch.zeros(n, dtype=torch.bool)
+        bool_mask[indices] = True
+        batch.mask = bool_mask
         mask_indices = indices[:num_masked_nodes]  # All nodes that are masked
         mut_indices = indices[num_masked_nodes : num_masked_nodes + num_mutated_nodes]  # All nodes that are mutated
         batch.x[mask_indices] = 20
@@ -138,7 +147,7 @@ class MaskTypeBERT(BaseTransform):
 class MaskTypeWeighted(MaskType):
     """Masks the type of the nodes in a graph."""
 
-    def __call__(self, batch) -> torch.Tensor:
+    def forward(self, batch) -> torch.Tensor:
         num_mut = int(batch.x.size(0) * self.prob)
         num_mut_per_aa = int(num_mut / 20)
         mask = []
@@ -146,10 +155,12 @@ class MaskTypeWeighted(MaskType):
             indices = torch.where(batch.x == i)[0]
             random_pick = torch.randperm(indices.size(0))[:num_mut_per_aa]
             mask.append(indices[random_pick])
-        mask = torch.cat(mask)
-        batch.orig_x = batch.x[mask].clone()
-        batch.x[mask] = 20
-        batch.mask = mask
+        indices = torch.cat(mask)
+        bool_mask = torch.zeros(batch.x.size(0), dtype=torch.bool)
+        bool_mask[indices] = True
+        batch.orig_x = batch.x.clone()
+        batch.x[bool_mask] = 20
+        batch.mask = bool_mask
         return batch
 
 
