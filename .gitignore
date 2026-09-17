@@ -1,8 +1,6 @@
 .*
 !.gitignore
 !.pre-commit-config.yaml
-!.flake8
-!.readthedocs.yaml
 __*__/
 *egg-info*
 *.out

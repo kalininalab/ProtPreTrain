@@ -7,7 +7,7 @@ name = "step"
 description = "Protein structure pretraining"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.12"
 authors = [{ name = "Ilya Senatorov", email = "ilya.senatorov@helmholtz-hips.de" }]
 keywords = [
     "deep-learning",
@@ -25,7 +25,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-    # Verified stack: Python 3.11, torch 2.5.1+cu121 (see audit/BASELINE.md)
+    # Verified stack: Python 3.11, torch 2.14.0+cu126 (2026-09-17)
     "ankh==1.10.0",
     "beartype==0.22.9",
     "foldcomp==1.0.0",
@@ -36,16 +36,14 @@ dependencies = [
     "numpy==2.4.6",
     "pandas==3.0.5",
     "plotly==7.1.0",
-    "pyg-lib==0.4.0",
+    "pyg-lib==0.9.0",
     "PyYAML==6.0.3",
-    "pytorch-lightning==2.6.6",
+    "lightning==2.6.6",
     "rdkit==2026.3.6",
     "rich==14.3.4",
     "scikit-learn==1.9.1",
-    "torch==2.5.1",
+    "torch==2.14.0",
     "torch-geometric==2.8.0.post1",
-    "torch-scatter==2.1.2",
-    "torch-sparse==0.6.18",
     "torchmetrics==1.9.0",
     "tqdm==4.70.1",
     "transformers==4.57.6",
@@ -63,18 +61,15 @@ include = ["step*"]
 [tool.setuptools.dynamic]
 version = { attr = "step.version.version" }
 
-# torch-scatter/-sparse/-cluster and pyg-lib have no PyPI wheels for torch 2.5;
-# these are the verified prebuilt cp311+cu121 wheels (audit/BASELINE.md).
+# torch-geometric 2.8 migrated neighbor ops from torch-cluster/-scatter/-sparse
+# to pyg-lib; these are the prebuilt +pt214cu126 wheels (no PyPI distribution).
 [tool.uv.sources]
-torch = { index = "pytorch-cu121" }
-torch-cluster = { url = "https://data.pyg.org/whl/torch-2.5.0+cu121/torch_cluster-1.6.3+pt25cu121-cp311-cp311-linux_x86_64.whl" }
-torch-scatter = { url = "https://data.pyg.org/whl/torch-2.5.0+cu121/torch_scatter-2.1.2+pt25cu121-cp311-cp311-linux_x86_64.whl" }
-torch-sparse = { url = "https://data.pyg.org/whl/torch-2.5.0+cu121/torch_sparse-0.6.18+pt25cu121-cp311-cp311-linux_x86_64.whl" }
-pyg-lib = { url = "https://data.pyg.org/whl/torch-2.5.0+cu121/pyg_lib-0.4.0+pt25cu121-cp311-cp311-linux_x86_64.whl" }
+torch = { index = "pytorch-cu126" }
+pyg-lib = { url = "https://data.pyg.org/whl/torch-2.14.0%2Bcu126/pyg_lib-0.9.0%2Bpt214cu126-cp310-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl" }
 
 [[tool.uv.index]]
-name = "pytorch-cu121"
-url = "https://download.pytorch.org/whl/cu121"
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
 explicit = true
 
 [dependency-groups]

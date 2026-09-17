@@ -4,10 +4,9 @@ import torch
 import torch.nn.functional as F
 import torch_geometric as pyg
 import torchmetrics as metrics
-from pytorch_lightning import LightningModule
+from lightning.pytorch import LightningModule
 from torch_geometric.data import Data
 
-from ..utils import WarmUpCosineLR
 from .downstream import SimpleMLP
 
 
@@ -50,7 +49,6 @@ class DenoiseModel(LightningModule):
         predict_all: bool = True,
         walk_length: int = 20,
         lr: float = 1e-4,
-        **kwargs,
     ):
         super(DenoiseModel, self).__init__()
         if not hidden_dim > (pos_dim + pe_dim):
@@ -138,7 +136,7 @@ class DenoiseModel(LightningModule):
         x = self.feat_encode(batch.x)
         pos = self.pos_encode(batch.pos)
         pe = self.pe_norm(batch.pe)
-        pe = self.pe_encode(batch.pe)
+        pe = self.pe_encode(pe)
         x = torch.cat([x, pos, pe], dim=1)
         for conv in self.convs:
             x = conv(x, batch.edge_index, batch.batch)
@@ -148,7 +146,14 @@ class DenoiseModel(LightningModule):
     def configure_optimizers(self) -> Any:
         """interval is making sure you step after each step, not each epoch"""
         optim = torch.optim.AdamW(self.parameters(), self.lr)
-        scheduler = WarmUpCosineLR(
-            optim, warmup_steps=10000, start_lr=1e-5, max_lr=self.lr, min_lr=1e-7, cycle_len=100000
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optim,
+            schedulers=[
+                torch.optim.lr_scheduler.LinearLR(
+                    optim, start_factor=1e-5 / self.lr, end_factor=1.0, total_iters=10000
+                ),
+                torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=100000, eta_min=1e-7),
+            ],
+            milestones=[10000],
         )
         return {"optimizer": optim, "lr_scheduler": {"scheduler": scheduler, "interval": "step"}}

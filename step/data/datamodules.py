@@ -4,13 +4,12 @@ from typing import List, Literal
 
 import torch
 import torch_geometric.transforms as T
-from pytorch_lightning import LightningDataModule, Trainer
+import wandb
+from lightning.pytorch import LightningDataModule, Trainer
 from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader, DynamicBatchSampler
 from torch_geometric.transforms import BaseTransform
 from tqdm import tqdm
-
-import wandb
 
 from ..models import DenoiseModel
 from .datasets import DTIDataset, FluorescenceDataset, FoldCompDataset, HomologyDataset, StabilityDataset

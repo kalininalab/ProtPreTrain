@@ -87,11 +87,10 @@ def test_import_everything():
         "step.utils",
         "step.utils.checkpoint",
         "step.utils.cli",
-        "step.utils.optim",
     ]:
         importlib.import_module(name)
     importlib.import_module("torch_geometric")
-    importlib.import_module("pytorch_lightning")
+    importlib.import_module("lightning.pytorch")
 
 
 def test_forward_pass():

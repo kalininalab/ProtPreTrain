@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch
 import torch_geometric as pyg
 
@@ -37,14 +37,12 @@ parser.add_argument("--batch_size", type=int, default=32)
 parser.add_argument("--max_epochs", type=int, default=10)
 parser.add_argument("--subset", type=int, default=None)
 parser.add_argument("--lr", type=float, default=1e-4)
-parser.add_argument("--num_nodes", type=int, default=1, help="Computing nodes")
 parser.add_argument("--num_workers", type=int, default=16)
 
 args = parser.parse_args()
 
 
-# Explicitly specify the process group backend if you choose to
-
+# TF32 matmul precision is opt-in and keeps results tied to the installed torch build.
 torch.set_float32_matmul_precision("medium")
 torch.multiprocessing.set_sharing_strategy("file_system")
 pl.seed_everything(42)
@@ -80,14 +78,24 @@ datamodule = FoldCompDataModule(
 datamodule.setup()
 
 run = logger.experiment
-model = DenoiseModel(**config)
+model = DenoiseModel(
+    hidden_dim=args.hidden_dim,
+    pe_dim=args.pe_dim,
+    pos_dim=args.pos_dim,
+    num_layers=args.num_layers,
+    attn_type=args.attn_type,
+    dropout=args.dropout,
+    alpha=args.alpha,
+    predict_all=args.predict_all,
+    walk_length=args.walk_length,
+    lr=args.lr,
+)
 trainer = pl.Trainer(
     accelerator="gpu",
     max_epochs=args.max_epochs,
     precision="bf16-mixed",
     strategy="auto",
     devices=-1,
-    num_nodes=args.num_nodes,
     callbacks=[
         WandbArtifactModelCheckpoint(
             wandb_run=run,

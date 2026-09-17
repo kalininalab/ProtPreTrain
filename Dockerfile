@@ -1,5 +1,5 @@
 # Use an official PyTorch base image (pinned: matches the verified torch 2.5.1+cu121 stack)
-FROM pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
+FROM pytorch/pytorch:2.14.0-cuda12.6-cudnn9-runtime
 WORKDIR /app
 
 # uv-managed install (pyproject.toml + uv.lock are the single source of truth)

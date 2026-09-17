@@ -3,11 +3,10 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 import torchmetrics.functional as metrics
-from pytorch_lightning import LightningModule
+import wandb
+from lightning.pytorch import LightningModule
 from torch_geometric.data import Data
 from torch_geometric.utils import to_dense_batch
-
-import wandb
 
 
 class LazySimpleMLP(torch.nn.Module):

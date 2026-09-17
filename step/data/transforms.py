@@ -66,7 +66,12 @@ class MaskType(BaseTransform):
 
 
 class MaskTypeAnkh(BaseTransform):
-    """Ensures each amino acid is masked at least once in a graph."""
+    """Masks a ``pick_prob`` fraction of nodes, preferring one node per amino-acid class.
+
+    Class order is shuffled and all random draws use the torch RNG, so masking is
+    deterministic under a fixed ``torch.manual_seed`` (the previous implementation
+    used Python ``random`` and a ``set``, which were not torch-seed controlled).
+    """
 
     def __init__(self, pick_prob: float):
         self.prob = pick_prob
@@ -74,23 +79,24 @@ class MaskTypeAnkh(BaseTransform):
     def forward(self, batch) -> torch.Tensor:
         N = batch.x.size(0)
         n = int(N * self.prob)
-        mask = set()
-        aas = torch.randperm(20)
-        for i in aas:
-            if len(mask) >= n:
-                break
-            subset = torch.where(batch.x == i)[0]
-            if subset.size(0) > 0:
-                mask.add(subset[random.randint(0, subset.size(0) - 1)].item())
-        if n < 20:
-            mask = torch.tensor(list(mask))
-        else:
-            all_indices = set(range(N))
-            remaining_indices = list(all_indices - mask)
-            random.shuffle(remaining_indices)
-            mask = list(mask) + remaining_indices[: n - len(mask)]
-            mask = torch.tensor(list(mask))
         batch.orig_x = batch.x.clone()
+
+        # One node per class, classes visited in shuffled order.
+        picked = []
+        for cls in torch.randperm(20):
+            if len(picked) >= n:
+                break
+            idx = (batch.x == cls).nonzero(as_tuple=False).flatten()
+            if idx.numel() > 0:
+                picked.append(idx[torch.randint(idx.numel(), ())].item())
+
+        # Fill any remaining quota uniformly from the unmasked nodes.
+        if len(picked) < n:
+            remaining = torch.tensor([i for i in range(N) if i not in set(picked)])
+            perm = torch.randperm(remaining.numel())
+            picked.extend(remaining[perm[: n - len(picked)]].tolist())
+
+        mask = torch.tensor(picked, dtype=torch.long)
         batch.x[mask] = 20
         batch.mask = mask
         return batch
