@@ -1,6 +1,5 @@
 from typing import Any, Literal
 
-import pandas as pd
 import torch
 import torch.nn.functional as F
 import torch_geometric as pyg
@@ -8,10 +7,7 @@ import torchmetrics as metrics
 from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
 
-import wandb
-
-from ..data.parsers import THREE_TO_ONE
-from ..utils import WarmUpCosineLR, plot_aa_tsne, plot_confmat, plot_node_embeddings
+from ..utils import WarmUpCosineLR
 from .downstream import SimpleMLP
 
 
@@ -105,33 +101,6 @@ class DenoiseModel(LightningModule):
         batch.noise_pred = self.noise_pred(x)
         batch.x = x
         return batch
-
-    def log_confmat(self):
-        """Log confusion matrix to wandb."""
-        confmat_df = self.confmat.compute().detach().cpu().numpy()
-        indices = list(THREE_TO_ONE)[:-1]
-        confmat_df = pd.DataFrame(confmat_df, index=indices, columns=indices).round(2)
-        self.confmat.reset()
-        return plot_confmat(confmat_df)
-
-    def log_aa_embed(self):
-        """Log t-SNE plot of amino acid embeddings."""
-        aa = torch.tensor(range(21), dtype=torch.long, device=self.device)
-        emb = self.feat_encode(aa).detach().cpu()
-        return plot_aa_tsne(emb)
-
-    def log_figs(self, step: str):
-        """Log figures to wandb."""
-        test_batch = self.forward(self.test_batch.clone())
-        node_pca = plot_node_embeddings(
-            test_batch.x, self.test_batch.x, [self.test_batch.uniprot_id[x] for x in self.test_batch.batch]
-        )
-        figs = {
-            f"{step}/confmat": self.log_confmat(),
-            f"{step}/aa_pca": self.log_aa_embed(),
-            f"{step}/node_pca": node_pca,
-        }
-        wandb.log(figs)
 
     def training_step(self, batch: Data, batch_idx: int, dataloader_idx: int = 0) -> dict:
         """Shared step for training and validation."""

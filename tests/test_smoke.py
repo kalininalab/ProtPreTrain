@@ -74,7 +74,6 @@ def test_import_everything():
         "step.utils.cli",
         "step.utils.math",
         "step.utils.optim",
-        "step.utils.vis",
     ]:
         importlib.import_module(name)
     importlib.import_module("torch_geometric")
