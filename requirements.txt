@@ -2,13 +2,9 @@ wandb
 torch-geometric
 torch-scatter
 torch-sparse
-torch-cluster
+pyg-lib>=0.6.0
 pytorch-lightning
-yacs
-performer-pytorch
 torchmetrics
-ogb
-tensorboardX
 plotly
 pandas
 numpy
