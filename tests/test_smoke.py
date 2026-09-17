@@ -41,18 +41,34 @@ def make_model() -> DenoiseModel:
 
 
 def run_training(model: DenoiseModel, seed: int = 0, steps: int = 20) -> tuple[list[float], Batch]:
-    """training_step mutates batch.x in place, so rebuild a fresh batch each step."""
+    """Run AdamW steps; return (losses, forward output of the last step).
+
+    forward() now clones the batch, so capture the step output with a hook to keep
+    the exact same forward/optimizer/BatchNorm update count as the original run.
+    """
     opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
     losses = []
+    outputs = []
+    forward = model.forward
+
+    def capture(batch):
+        out = forward(batch)
+        outputs.append(out)
+        return out
+
+    model.forward = capture
     model.train()
-    for _ in range(steps):
-        batch = make_batch(seed)
-        opt.zero_grad()
-        loss = model.training_step(batch, 0)
-        loss.backward()
-        opt.step()
-        losses.append(float(loss))
-    return losses, batch
+    try:
+        for _ in range(steps):
+            batch = make_batch(seed)
+            opt.zero_grad()
+            loss = model.training_step(batch, 0)
+            loss.backward()
+            opt.step()
+            losses.append(float(loss))
+    finally:
+        model.forward = forward
+    return losses, outputs[-1]
 
 
 def test_import_everything():

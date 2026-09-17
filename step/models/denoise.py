@@ -90,6 +90,8 @@ class DenoiseModel(LightningModule):
 
     def forward(self, batch: Data) -> Data:
         """Return updated batch with noise and node type predictions."""
+        # Copy so the input batch (long x) is not mutated in place with float embeddings.
+        batch = batch.clone()
         self.redraw_projection.redraw_projections()
         x = self.feat_encode(batch.x)
         pos = self.pos_encode(batch.pos)
