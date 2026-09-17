@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, Union
 
 import yaml
 
+
 def str_to_bool(value: str) -> bool:
     """Command line inputs that are bools."""
     if isinstance(value, bool):
@@ -15,6 +16,7 @@ def str_to_bool(value: str) -> bool:
         return False
     else:
         raise argparse.ArgumentTypeError("Boolean value expected.")
+
 
 def remove_arg_prefix(prefix: str, kwargs: dict) -> dict:
     """Removes the prefix from all the args.
@@ -89,10 +91,10 @@ class IterDict:
         hparams_small = {k: v for k, v in self.flat.items() if isinstance(v, list)}
         if hparams_small == {}:
             return [self.flat]
-        keys, values = zip(*hparams_small.items())
+        keys, values = zip(*hparams_small.items(), strict=False)
         for v in itertools.product(*values):
             config = self.flat.copy()
-            config.update(dict(zip(keys, v)))
+            config.update(dict(zip(keys, v, strict=False)))
             configs.append(config)
         return configs
 

@@ -1,10 +1,12 @@
+import re
+
 import setuptools
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
 with open("step/version.py") as infile:
-    exec(infile.read())
+    version = re.search(r'^version = "([^"]+)"', infile.read(), re.M).group(1)
 
 setuptools.setup(
     name="STEP",

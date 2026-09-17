@@ -79,9 +79,9 @@ class FoldCompDataset(Dataset):
     def _get_chunks(self) -> List[tuple[int, int]]:
         with foldcomp.open(self.raw_paths[0]) as db:
             num_entries = len(db)
-        l = [(x, x + self.chunk_size) for x in range(0, num_entries, self.chunk_size)]
-        l[-1] = (l[-1][0], num_entries)
-        return l
+        chunks = [(x, x + self.chunk_size) for x in range(0, num_entries, self.chunk_size)]
+        chunks[-1] = (chunks[-1][0], num_entries)
+        return chunks
 
     def _chunk_name(self, start_num: int) -> str:
         return f"{self.processed_dir}/data/chunk_{start_num}.h5"
@@ -146,7 +146,7 @@ class DownstreamDataset(InMemoryDataset):
 
     def process(self):
         """Do the full run for the dataset."""
-        for split, idx in self.splits.items():
+        for _, idx in self.splits.items():
             df = pd.read_json(self.raw_paths[idx])
             data_list = self._prepare_data(df)
 

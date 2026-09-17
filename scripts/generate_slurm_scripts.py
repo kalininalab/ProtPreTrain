@@ -51,8 +51,8 @@ def generate_config_permutations(input_dict: dict) -> tuple[list[dict], list[str
     fixed_items = {k: v for k, v in input_dict.items() if not isinstance(v, list)}
     variable_items = {k: v for k, v in input_dict.items() if isinstance(v, list)}
     if variable_items:
-        keys, values = zip(*variable_items.items())
-        permutations = [dict(zip(keys, v)) for v in product(*values)]
+        keys, values = zip(*variable_items.items(), strict=False)
+        permutations = [dict(zip(keys, v, strict=False)) for v in product(*values)]
         config_list = [({**fixed_items, **perm}, get_name(perm)) for perm in permutations]
     else:
         config_list = [(fixed_items, "default")]

@@ -1,14 +1,14 @@
-from math import ceil
 import os
 import re
 import shutil
+from math import ceil
 from pathlib import Path
 from typing import Iterable, List, Tuple
-from rdkit import Chem
-from rdkit.Chem import AllChem
 
 import Levenshtein
 import torch
+from rdkit import Chem
+from rdkit.Chem import AllChem
 from torch_geometric.data import Data
 
 from .parsers import aminoacids
@@ -87,9 +87,9 @@ def replace_symlinks_with_copies(directory):
 def get_start_end(dataset_len: int, num_workers: int) -> list[tuple[int, int]]:
     """Get the start and end indices for each worker."""
     k = ceil(dataset_len / num_workers)
-    l = [(x - k, x) for x in range(k, dataset_len, k)]
-    l.append((l[-1][1], dataset_len))
-    return l
+    bounds = [(x - k, x) for x in range(k, dataset_len, k)]
+    bounds.append((bounds[-1][1], dataset_len))
+    return bounds
 
 
 def smiles_to_ecfp(smiles: str, radius: int = 2, nbits: int = 2048) -> torch.Tensor:
