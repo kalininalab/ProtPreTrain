@@ -26,7 +26,7 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3
 export WANDB_DIR=$SCRATCH/wandb
 export WANDB_MODE=offline
 
-conda activate step
+source .venv/bin/activate
 
 # echo "Running on $(hostname)"
 # echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"

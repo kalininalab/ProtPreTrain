@@ -27,7 +27,7 @@ export NCCL_SOCKET_IFNAME=ib3,ib2,ib1,ib0
 export WANDB_DIR=$SCRATCH/wandb
 export WANDB_MODE=offline
 
-conda activate step
+source .venv/bin/activate
 srun python train.py""".strip()
 
 

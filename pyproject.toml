@@ -1,3 +1,88 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "step"
+description = "Protein structure pretraining"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Ilya Senatorov", email = "ilya.senatorov@helmholtz-hips.de" }]
+keywords = [
+    "deep-learning",
+    "pytorch",
+    "foundation",
+    "self-supervised",
+    "residue-interaction-network",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Development Status :: 3 - Alpha",
+]
+dynamic = ["version"]
+dependencies = [
+    # Verified stack: Python 3.11, torch 2.5.1+cu121 (see audit/BASELINE.md)
+    "ankh==1.10.0",
+    "beartype==0.22.9",
+    "foldcomp==1.0.0",
+    "h5py==3.16.0",
+    "joblib==1.6.0",
+    "Levenshtein==0.27.5",
+    "matplotlib==3.11.2",
+    "numpy==2.4.6",
+    "pandas==3.0.5",
+    "plotly==7.1.0",
+    "pyg-lib==0.4.0",
+    "PyYAML==6.0.3",
+    "pytorch-lightning==2.6.6",
+    "rdkit==2026.3.6",
+    "rich==14.3.4",
+    "scikit-learn==1.9.1",
+    "torch==2.5.1",
+    "torch-geometric==2.8.0.post1",
+    "torch-scatter==2.1.2",
+    "torch-sparse==0.6.18",
+    "torchmetrics==1.9.0",
+    "tqdm==4.70.1",
+    "transformers==4.57.6",
+    "wandb==0.30.0",
+]
+
+[project.urls]
+Repository = "https://github.com/ilsenatorov/ProtPreTrain"
+
+[tool.setuptools]
+# Same package discovery as the former setup.py find_packages()
+[tool.setuptools.packages.find]
+include = ["step*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "step.version.version" }
+
+# torch-scatter/-sparse/-cluster and pyg-lib have no PyPI wheels for torch 2.5;
+# these are the verified prebuilt cp311+cu121 wheels (audit/BASELINE.md).
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }
+torch-cluster = { url = "https://data.pyg.org/whl/torch-2.5.0+cu121/torch_cluster-1.6.3+pt25cu121-cp311-cp311-linux_x86_64.whl" }
+torch-scatter = { url = "https://data.pyg.org/whl/torch-2.5.0+cu121/torch_scatter-2.1.2+pt25cu121-cp311-cp311-linux_x86_64.whl" }
+torch-sparse = { url = "https://data.pyg.org/whl/torch-2.5.0+cu121/torch_sparse-0.6.18+pt25cu121-cp311-cp311-linux_x86_64.whl" }
+pyg-lib = { url = "https://data.pyg.org/whl/torch-2.5.0+cu121/pyg_lib-0.4.0+pt25cu121-cp311-cp311-linux_x86_64.whl" }
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.16.8",
+]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 119
