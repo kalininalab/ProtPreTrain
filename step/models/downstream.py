@@ -130,7 +130,7 @@ class ClassificationModel(BaseModel):
 
     def shared_step(self, batch: Data, batch_idx: int = 0, *, step_name: str = "train") -> dict:
         """Shared step for training and validation."""
-        y_hat = self.forward(batch)
+        y_hat = self.forward(batch).squeeze(1)
         y = torch.tensor(batch.y, dtype=torch.long, device=self.device)
         loss = F.cross_entropy(y_hat, y)
         acc = metrics.accuracy(y_hat, y, "multiclass", num_classes=self.num_classes)

@@ -53,7 +53,8 @@ class DenoiseModel(LightningModule):
         **kwargs,
     ):
         super(DenoiseModel, self).__init__()
-        assert hidden_dim > (pos_dim + pe_dim)
+        if not hidden_dim > (pos_dim + pe_dim):
+            raise ValueError("hidden_dim must exceed pos_dim + pe_dim")
         self.save_hyperparameters()
         self.lr = lr
         self.alpha = alpha
@@ -86,6 +87,8 @@ class DenoiseModel(LightningModule):
 
     def forward(self, batch: Data) -> Data:
         """Return updated batch with noise and node type predictions."""
+        # Copy so the input batch (long x) is not mutated in place with float embeddings.
+        batch = batch.clone()
         self.redraw_projection.redraw_projections()
         x = self.feat_encode(batch.x)
         pos = self.pos_encode(batch.pos)

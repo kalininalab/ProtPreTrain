@@ -25,29 +25,14 @@ class RandomWalkPE(BaseTransform):
         adj = to_dense_adj(data.edge_index, max_num_nodes=data.x.size(0)).squeeze(0)
         row_sums = adj.sum(dim=1, keepdim=True)
         adj = adj / row_sums.clamp(min=1)
-        pe_list = [torch.zeros_like(adj).diag()]
+        pe_list = [None] * self.walk_length
+        pe_list[0] = torch.zeros(adj.size(0))
         walk_matrix = adj
-        for _ in range(self.walk_length - 1):
+        for i in range(1, self.walk_length):
             walk_matrix = walk_matrix @ adj
-            pe_list.append(walk_matrix.diag())
+            pe_list[i] = walk_matrix.diag()
         pe = torch.stack(pe_list, dim=-1)
         data[self.attr_name] = pe
-        return data.to("cpu")
-
-
-class ToCuda:
-    def __init__(self, p: float = 1.0):
-        self.p = p
-
-    def __call__(self, data: Data) -> Data:
-        if random.random() < self.p:
-            return data.to("cuda")
-        else:
-            return data
-
-
-class ToCpu:
-    def __call__(self, data: Data) -> Data:
         return data.to("cpu")
 
 
@@ -58,7 +43,7 @@ class PosNoise(BaseTransform):
         self.sigma = sigma
         self.plddt_dependent = plddt_dependent
 
-    def __call__(self, batch) -> torch.Tensor:
+    def forward(self, batch) -> torch.Tensor:
         noise = torch.randn_like(batch.pos) * self.sigma
         if self.plddt_dependent:
             noise *= 2 - batch.plddt.unsqueeze(-1) / 100
@@ -73,7 +58,7 @@ class MaskType(BaseTransform):
     def __init__(self, pick_prob: float):
         self.prob = pick_prob
 
-    def __call__(self, batch) -> torch.Tensor:
+    def forward(self, batch) -> torch.Tensor:
         mask = torch.rand_like(batch.x, dtype=torch.float32) < self.prob
         batch.orig_x = batch.x.clone()
         batch.x[mask] = 20
@@ -87,7 +72,7 @@ class MaskTypeAnkh(BaseTransform):
     def __init__(self, pick_prob: float):
         self.prob = pick_prob
 
-    def __call__(self, batch) -> torch.Tensor:
+    def forward(self, batch) -> torch.Tensor:
         N = batch.x.size(0)
         n = int(N * self.prob)
         mask = set()
@@ -120,7 +105,7 @@ class MaskTypeBERT(BaseTransform):
         self.mask_prob = mask_prob
         self.mut_prob = mut_prob
 
-    def __call__(self, batch) -> torch.Tensor:
+    def forward(self, batch) -> torch.Tensor:
         n = batch.x.size(0)
         num_changed_nodes = int(n * self.pick_prob)  # 0.15 in BERT paper
         num_masked_nodes = int(num_changed_nodes * self.mask_prob)  # 0.8 in BERT paper
@@ -135,30 +120,14 @@ class MaskTypeBERT(BaseTransform):
         return batch
 
 
-class MaskTypeWeighted(MaskType):
-    """Masks the type of the nodes in a graph."""
-
-    def __call__(self, batch) -> torch.Tensor:
-        num_mut = int(batch.x.size(0) * self.prob)
-        num_mut_per_aa = int(num_mut / 20)
-        mask = []
-        for i in range(20):
-            indices = torch.where(batch.x == i)[0]
-            random_pick = torch.randperm(indices.size(0))[:num_mut_per_aa]
-            mask.append(indices[random_pick])
-        mask = torch.cat(mask)
-        batch.orig_x = batch.x[mask].clone()
-        batch.x[mask] = 20
-        batch.mask = mask
-        return batch
-
-
 class SequenceOnly:
     """Removes all node features except the sequence."""
 
     def __call__(self, batch) -> torch.Tensor:
         n = batch.x.size(0)
-        batch.pos = torch.stack([torch.arange(0, n) * 3.8 - (3.8 * (n - 1) / 2), torch.zeros(n), torch.zeros(n)], dim=1)
+        batch.pos = torch.stack(
+            [torch.arange(0, n) * 3.8 - (3.8 * (n - 1) / 2), torch.zeros(n), torch.zeros(n)], dim=1
+        )
         return batch
 
 

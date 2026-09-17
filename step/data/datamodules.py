@@ -1,12 +1,12 @@
+import warnings
 from pathlib import Path
 from typing import List, Literal
 
 import torch
 import torch_geometric.transforms as T
 from pytorch_lightning import LightningDataModule, Trainer
-from torch.utils.data import RandomSampler, SequentialSampler
 from torch_geometric.data import Data, Dataset
-from torch_geometric.loader import DataLoader
+from torch_geometric.loader import DataLoader, DynamicBatchSampler
 from torch_geometric.transforms import BaseTransform
 from tqdm import tqdm
 
@@ -14,7 +14,6 @@ import wandb
 
 from ..models import DenoiseModel
 from .datasets import DTIDataset, FluorescenceDataset, FoldCompDataset, HomologyDataset, StabilityDataset
-from .samplers import DynamicBatchSampler
 from .transforms import RandomWalkPE, SequenceOnly, StructureOnly
 
 
@@ -46,16 +45,11 @@ class FoldCompDataModule(LightningDataModule):
 
     def _get_dataloader(self, ds: Dataset) -> DataLoader:
         if self.batch_sampling:
-            assert self.max_num_nodes > 0
-            if self.shuffle:
-                sampler = RandomSampler(ds)
-            else:
-                sampler = SequentialSampler(ds)
             batch_sampler = DynamicBatchSampler(
                 ds,
-                sampler,
-                mode="node",
                 max_num=self.max_num_nodes,
+                mode="node",
+                shuffle=self.shuffle,
                 skip_too_big=True,
                 num_steps=len(ds),
             )
@@ -66,7 +60,7 @@ class FoldCompDataModule(LightningDataModule):
                 pin_memory=True,
             )
         else:
-            return DataLoader(ds, **self._dl_kwargs(False))
+            return DataLoader(ds, **self._dl_kwargs())
 
     def train_dataloader(self):
         """Train dataloader."""
@@ -85,10 +79,10 @@ class FoldCompDataModule(LightningDataModule):
         if self.subset:
             self.train = self.train[: self.subset]
 
-    def _dl_kwargs(self, shuffle: bool = False):
+    def _dl_kwargs(self):
         return dict(
             batch_size=self.batch_size,
-            shuffle=self.shuffle if shuffle else False,
+            shuffle=False,
             num_workers=self.num_workers,
             pin_memory=True,
         )
@@ -145,7 +139,7 @@ class DownstreamDataModule(LightningDataModule):
         return transform, pre_transform
 
     def _get_dataloader(self, ds: Dataset) -> DataLoader:
-        return DataLoader(ds, **self._dl_kwargs(False))
+        return DataLoader(ds, **self._dl_kwargs())
 
     def train_dataloader(self):
         """Train dataloader."""
@@ -245,10 +239,10 @@ class DownstreamDataModule(LightningDataModule):
         else:
             raise ValueError(f"Unknown feature extract model source {self.feature_extract_model_source}")
 
-    def _dl_kwargs(self, shuffle: bool = False):
+    def _dl_kwargs(self):
         return dict(
             batch_size=self.batch_size,
-            shuffle=self.shuffle if shuffle else False,
+            shuffle=False,
             num_workers=self.num_workers,
         )
 
@@ -336,8 +330,8 @@ class DownstreamDataModule(LightningDataModule):
                 try:
                     with torch.no_grad():
                         embedding_repr = model(token_encoding.input_ids, attention_mask=token_encoding.attention_mask)
-                except RuntimeError:
-                    print("RuntimeError during embedding for {} (L={})".format(i, len(i.seq)))
+                except torch.cuda.OutOfMemoryError:
+                    warnings.warn(f"prostt5 embedding OOM for {i} (L={len(i.seq)}), skipping", stacklevel=2)
                     continue
                 i.x = embedding_repr.last_hidden_state[0, 1 : len(i.seq) + 1].mean(dim=0)
                 data_list.append(i)

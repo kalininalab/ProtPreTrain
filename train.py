@@ -4,7 +4,6 @@ import pytorch_lightning as pl
 import torch
 import torch_geometric as pyg
 
-import wandb
 from step.data import (
     FoldCompDataModule,
     MaskType,

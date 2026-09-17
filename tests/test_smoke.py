@@ -41,18 +41,34 @@ def make_model() -> DenoiseModel:
 
 
 def run_training(model: DenoiseModel, seed: int = 0, steps: int = 20) -> tuple[list[float], Batch]:
-    """training_step mutates batch.x in place, so rebuild a fresh batch each step."""
+    """Run AdamW steps; return (losses, forward output of the last step).
+
+    forward() now clones the batch, so capture the step output with a hook to keep
+    the exact same forward/optimizer/BatchNorm update count as the original run.
+    """
     opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
     losses = []
+    outputs = []
+    forward = model.forward
+
+    def capture(batch):
+        out = forward(batch)
+        outputs.append(out)
+        return out
+
+    model.forward = capture
     model.train()
-    for _ in range(steps):
-        batch = make_batch(seed)
-        opt.zero_grad()
-        loss = model.training_step(batch, 0)
-        loss.backward()
-        opt.step()
-        losses.append(float(loss))
-    return losses, batch
+    try:
+        for _ in range(steps):
+            batch = make_batch(seed)
+            opt.zero_grad()
+            loss = model.training_step(batch, 0)
+            loss.backward()
+            opt.step()
+            losses.append(float(loss))
+    finally:
+        model.forward = forward
+    return losses, outputs[-1]
 
 
 def test_import_everything():
@@ -62,7 +78,6 @@ def test_import_everything():
         "step.data.datamodules",
         "step.data.datasets",
         "step.data.parsers",
-        "step.data.samplers",
         "step.data.transforms",
         "step.data.utils",
         "step.models",
@@ -127,3 +142,44 @@ def snapshot_data():
 
 def test_seed_snapshot(snapshot_data):
     assert snapshot_data["final_loss"] > 0
+
+
+def test_transforms_compose():
+    """Transforms must be instantiable and compose (pyg BaseTransform.forward abstract)."""
+    from torch_geometric.transforms import Compose
+
+    from step.data.transforms import MaskType, MaskTypeAnkh, PosNoise
+
+    torch.manual_seed(0)
+    n = 20
+    x = torch.randint(0, 20, (n,))
+    x_ref = x.clone()
+    edges = torch.tensor([[0, 1], [1, 0]])
+    data = Data(x=x, pos=torch.rand(n, 3), edge_index=edges)
+    out = Compose([PosNoise(0.5), MaskType(0.15)])(data)
+    assert out.mask.dtype == torch.bool
+    assert torch.equal(out.orig_x, x_ref)
+    assert set(out.x[out.mask].tolist()).issubset({20})
+
+    # MaskTypeAnkh overwrites mask with an index tensor; masked nodes are set to 20.
+    ankh = MaskTypeAnkh(0.15)
+    out2 = ankh(Data(x=x.clone(), pos=torch.rand(n, 3), edge_index=edges))
+    assert out2.mask.numel() > 0
+    assert set(out2.x[out2.mask].tolist()).issubset({20})
+
+
+def test_classification_step():
+    """Classification head must reduce the node dim before CE/metrics (BUG-6)."""
+    from step.models.downstream import ClassificationModel
+
+    torch.manual_seed(0)
+    graphs = [Data(x=torch.randn(8), y=cls) for cls in (0, 1, 2, 3)]
+    batch = Batch.from_data_list(graphs)
+    model = ClassificationModel(num_classes=5, hidden_dim=8, dropout=0.0)
+    model.train()
+    out = model.shared_step(batch, 0, step_name="train")
+    loss = out["loss"]
+    assert torch.isfinite(loss).item()
+    assert loss.item() < 10.0
+    for key in ("acc", "auc", "mcc"):
+        assert torch.isfinite(out[key]).item(), key

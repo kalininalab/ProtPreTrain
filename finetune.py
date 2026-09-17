@@ -1,5 +1,4 @@
 import argparse
-import warnings
 
 import pytorch_lightning as pl
 import torch
