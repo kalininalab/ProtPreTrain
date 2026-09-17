@@ -57,7 +57,8 @@ class DenoiseModel(LightningModule):
         **kwargs,
     ):
         super(DenoiseModel, self).__init__()
-        assert hidden_dim > (pos_dim + pe_dim)
+        if not hidden_dim > (pos_dim + pe_dim):
+            raise ValueError("hidden_dim must exceed pos_dim + pe_dim")
         self.save_hyperparameters()
         self.lr = lr
         self.alpha = alpha
