@@ -62,7 +62,6 @@ def test_import_everything():
         "step.data.datamodules",
         "step.data.datasets",
         "step.data.parsers",
-        "step.data.samplers",
         "step.data.transforms",
         "step.data.utils",
         "step.models",
@@ -153,3 +152,20 @@ def test_transforms_compose():
     out2 = ankh(Data(x=x.clone(), pos=torch.rand(n, 3), edge_index=edges))
     assert out2.mask.numel() > 0
     assert set(out2.x[out2.mask].tolist()).issubset({20})
+
+
+def test_classification_step():
+    """Classification head must reduce the node dim before CE/metrics (BUG-6)."""
+    from step.models.downstream import ClassificationModel
+
+    torch.manual_seed(0)
+    graphs = [Data(x=torch.randn(8), y=cls) for cls in (0, 1, 2, 3)]
+    batch = Batch.from_data_list(graphs)
+    model = ClassificationModel(num_classes=5, hidden_dim=8, dropout=0.0)
+    model.train()
+    out = model.shared_step(batch, 0, step_name="train")
+    loss = out["loss"]
+    assert torch.isfinite(loss).item()
+    assert loss.item() < 10.0
+    for key in ("acc", "auc", "mcc"):
+        assert torch.isfinite(out[key]).item(), key
