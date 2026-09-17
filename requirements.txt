@@ -13,7 +13,8 @@ foldcomp
 levenshtein
 ankh
 transformers
-torch
+# torch: 2.5.1+cu121 is the verified stack (see audit/BASELINE.md)
+torch>=2.5,<2.7
 beartype
 h5py
 joblib
