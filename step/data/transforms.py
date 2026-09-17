@@ -1,5 +1,4 @@
 import random
-from typing import Any
 
 import torch
 from torch_geometric.data import Data
