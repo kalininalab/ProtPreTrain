@@ -1,3 +1,4 @@
+import warnings
 from pathlib import Path
 from typing import List, Literal
 
@@ -329,8 +330,8 @@ class DownstreamDataModule(LightningDataModule):
                 try:
                     with torch.no_grad():
                         embedding_repr = model(token_encoding.input_ids, attention_mask=token_encoding.attention_mask)
-                except RuntimeError:
-                    print("RuntimeError during embedding for {} (L={})".format(i, len(i.seq)))
+                except torch.cuda.OutOfMemoryError:
+                    warnings.warn(f"prostt5 embedding OOM for {i} (L={len(i.seq)}), skipping", stacklevel=2)
                     continue
                 i.x = embedding_repr.last_hidden_state[0, 1 : len(i.seq) + 1].mean(dim=0)
                 data_list.append(i)
