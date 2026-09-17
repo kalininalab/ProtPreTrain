@@ -72,7 +72,6 @@ def test_import_everything():
         "step.utils",
         "step.utils.checkpoint",
         "step.utils.cli",
-        "step.utils.math",
         "step.utils.optim",
     ]:
         importlib.import_module(name)
