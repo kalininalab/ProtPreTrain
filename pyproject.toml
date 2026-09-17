@@ -4,3 +4,9 @@ line-length = 119
 fix = true
 lint.select = ["E","F","W","B"]
 lint.ignore = ["E501", "F841", "F811", "F401"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+filterwarnings = [
+  "ignore:You are trying to `self.log\\(\\)` but the `self.trainer` reference is not registered:UserWarning",
+]
