@@ -1,7 +1,9 @@
 import shutil
-from argparse import ArgumentParser, ArgumentTypeError
+from argparse import ArgumentParser
 from itertools import product
 from pathlib import Path
+
+from step.utils.cli import str_to_bool
 
 sample_string = """
 #!/bin/bash -l
@@ -27,18 +29,6 @@ export WANDB_MODE=offline
 
 conda activate step
 srun python train.py""".strip()
-
-
-def str_to_bool(value: str) -> bool:
-    """Command line inputs that are bools."""
-    if isinstance(value, bool):
-        return value
-    if value.lower() in ("yes", "true", "t", "y", "1"):
-        return True
-    elif value.lower() in ("no", "false", "f", "n", "0"):
-        return False
-    else:
-        raise ArgumentTypeError("Boolean value expected.")
 
 
 def get_name(perm_dict: dict):
