@@ -100,11 +100,11 @@ class ProtStructure:
         if check_path_valid(input_data):  # valid path == file
             suffixes = Path(input_data).suffixes
             if ".gz" in suffixes:  # if the file is gzipped
-                f = gzip.open(input_data, "rt")
+                with gzip.open(input_data, "rt") as f:
+                    content = f.read()
             else:
-                f = open(input_data, "r")
-            content = f.read()
-            f.close()
+                with open(input_data, "r") as f:
+                    content = f.read()
         else:  # invalid path == string
             content = input_data
         file_format = check_file_format(content)
