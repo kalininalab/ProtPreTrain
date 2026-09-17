@@ -17,3 +17,11 @@ foldcomp
 levenshtein
 ankh
 transformers
+torch
+beartype
+h5py
+joblib
+rdkit
+matplotlib
+pyyaml
+rich
