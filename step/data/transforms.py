@@ -25,11 +25,12 @@ class RandomWalkPE(BaseTransform):
         adj = to_dense_adj(data.edge_index, max_num_nodes=data.x.size(0)).squeeze(0)
         row_sums = adj.sum(dim=1, keepdim=True)
         adj = adj / row_sums.clamp(min=1)
-        pe_list = [torch.zeros_like(adj).diag()]
+        pe_list = [None] * self.walk_length
+        pe_list[0] = torch.zeros(adj.size(0))
         walk_matrix = adj
-        for _ in range(self.walk_length - 1):
+        for i in range(1, self.walk_length):
             walk_matrix = walk_matrix @ adj
-            pe_list.append(walk_matrix.diag())
+            pe_list[i] = walk_matrix.diag()
         pe = torch.stack(pe_list, dim=-1)
         data[self.attr_name] = pe
         return data.to("cpu")
