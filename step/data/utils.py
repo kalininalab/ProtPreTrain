@@ -26,8 +26,7 @@ def compute_edits(seq1: str, seq2: str) -> List[Tuple[str, int, str]]:
 
 def delete_row(tensor: torch.Tensor, row_index: int) -> torch.Tensor:
     """Delete a row from a tensor."""
-    indices = torch.tensor([i for i in range(tensor.size(0)) if i != row_index])
-    return torch.index_select(tensor, 0, indices)
+    return torch.cat([tensor[:row_index], tensor[row_index + 1 :]])
 
 
 def apply_edits(protein: Data, edit_operations: List[Tuple[str, int, str]]) -> Data:
@@ -40,7 +39,7 @@ def apply_edits(protein: Data, edit_operations: List[Tuple[str, int, str]]) -> D
             mutant.x[idx] = new_x
         elif op == "insert":
             new_pos = (mutant.pos[max(idx - 1, 0)] + mutant.pos[min(idx, dataset_len - 1)]) / 2
-            mutant.x = torch.cat([mutant.x[:idx], torch.tensor([new_x]), mutant.x[idx:]])
+            mutant.x = torch.cat([mutant.x[:idx], mutant.x.new_tensor([new_x]), mutant.x[idx:]])
             mutant.pos = torch.cat([mutant.pos[:idx], new_pos.unsqueeze(0), mutant.pos[idx:]])
         elif op == "delete":
             mutant.x = delete_row(mutant.x, idx)
