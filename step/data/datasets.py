@@ -6,11 +6,10 @@ import foldcomp
 import h5py
 import pandas as pd
 import torch
+import wandb
 from joblib import Parallel, delayed
 from torch_geometric.data import Data, Dataset, InMemoryDataset, extract_tar
 from tqdm.auto import tqdm
-
-import wandb
 
 from .parsers import ProtStructure
 from .utils import apply_edits, compute_edits, extract_uniprot_id, smiles_to_ecfp
@@ -126,7 +125,7 @@ class DownstreamDataset(InMemoryDataset):
 
     def __init__(self, split: str, *, transform=None, pre_transform=None, pre_filter=None):
         super().__init__(self.root, transform, pre_transform, pre_filter)
-        self.data, self.slices = torch.load(self.processed_paths[self.splits[split]])
+        self.data, self.slices = torch.load(self.processed_paths[self.splits[split]], weights_only=False)
 
     def download(self):
         """Download the dataset from wandb."""
