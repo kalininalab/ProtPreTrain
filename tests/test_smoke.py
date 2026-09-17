@@ -98,11 +98,14 @@ def test_forward_pass():
     batch = make_batch()
     model = make_model()
     model.eval()
+    inp = batch
     with torch.no_grad():
         batch = model.forward(batch)
     total = batch.x.shape[0]
     assert batch.type_pred.shape == (total, 20)
     assert batch.noise_pred.shape == (total, 3)
+    # BUG-2 guard: forward must not mutate the input batch (x stays long ids).
+    assert inp.x.dtype == torch.long
 
 
 def test_training_step():
@@ -158,6 +161,7 @@ def test_transforms_compose():
     data = Data(x=x, pos=torch.rand(n, 3), edge_index=edges)
     out = Compose([PosNoise(0.5), MaskType(0.15)])(data)
     assert out.mask.dtype == torch.bool
+    assert out.mask.any()
     assert torch.equal(out.orig_x, x_ref)
     assert set(out.x[out.mask].tolist()).issubset({20})
 
