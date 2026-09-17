@@ -129,3 +129,27 @@ def snapshot_data():
 
 def test_seed_snapshot(snapshot_data):
     assert snapshot_data["final_loss"] > 0
+
+
+def test_transforms_compose():
+    """Transforms must be instantiable and compose (pyg BaseTransform.forward abstract)."""
+    from torch_geometric.transforms import Compose
+
+    from step.data.transforms import MaskType, MaskTypeAnkh, PosNoise
+
+    torch.manual_seed(0)
+    n = 20
+    x = torch.randint(0, 20, (n,))
+    x_ref = x.clone()
+    edges = torch.tensor([[0, 1], [1, 0]])
+    data = Data(x=x, pos=torch.rand(n, 3), edge_index=edges)
+    out = Compose([PosNoise(0.5), MaskType(0.15)])(data)
+    assert out.mask.dtype == torch.bool
+    assert torch.equal(out.orig_x, x_ref)
+    assert set(out.x[out.mask].tolist()).issubset({20})
+
+    # MaskTypeAnkh overwrites mask with an index tensor; masked nodes are set to 20.
+    ankh = MaskTypeAnkh(0.15)
+    out2 = ankh(Data(x=x.clone(), pos=torch.rand(n, 3), edge_index=edges))
+    assert out2.mask.numel() > 0
+    assert set(out2.x[out2.mask].tolist()).issubset({20})
