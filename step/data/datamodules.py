@@ -110,6 +110,7 @@ class DownstreamDataModule(LightningDataModule):
         shuffle: bool = True,
         ablation: Literal["none", "sequence", "structure"] = "none",
         ablation_maskfrac: float = 1.0,
+        random_init: bool = False,
         radius: int = 10,
         walk_length: int = 20,
         **kwargs,
@@ -122,6 +123,7 @@ class DownstreamDataModule(LightningDataModule):
         self.shuffle = shuffle
         self.ablation = ablation
         self.ablation_maskfrac = ablation_maskfrac
+        self.random_init = random_init
         self.radius = radius
         self.walk_length = walk_length
         self.kwargs = kwargs
@@ -171,6 +173,9 @@ class DownstreamDataModule(LightningDataModule):
         p = Path(artifact_dir)
         p = [x for x in p.glob("*.ckpt")][0]
         model = DenoiseModel.load_from_checkpoint(p)
+        if self.random_init:
+            # No-pretraining control: same architecture and hyperparameters, fresh weights
+            model = DenoiseModel(**model.hparams)
         model.eval()
         return model
 

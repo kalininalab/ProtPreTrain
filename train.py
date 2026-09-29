@@ -24,6 +24,13 @@ parser.add_argument(
     default=False,
     help="Ablation: build radius graph + PE from clean coordinates at process time (leaks noise-free structure)",
 )
+parser.add_argument(
+    "--sequence_only",
+    type=str_to_bool,
+    default=False,
+    help="Sequence-only control: replace coordinates with a straight line before noising and graph building",
+)
+parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--batch_sampling", type=str_to_bool, default=False)
 parser.add_argument("--max_num_nodes", type=int, default=4096, help="Max num nodes in a dynamic batch")
 parser.add_argument("--batch_size", type=int, default=32)
@@ -34,6 +41,8 @@ parser.add_argument("--num_nodes", type=int, default=1, help="Computing nodes")
 parser.add_argument("--num_workers", type=int, default=16)
 
 args = parser.parse_args()
+if args.sequence_only and args.clean_graph:
+    parser.error("--sequence_only needs the graph built at load time, so it can't be combined with --clean_graph")
 
 import pytorch_lightning as pl
 import torch
@@ -42,6 +51,7 @@ from lightning.pytorch.strategies import DDPStrategy
 
 import wandb
 from step.data import FoldCompDataModule, MaskType, MaskTypeAnkh, MaskTypeBERT, PosNoise, RandomWalkPE
+from step.data.transforms import SequenceOnly
 from step.models import DenoiseModel
 from step.utils import WandbArtifactModelCheckpoint
 
@@ -49,7 +59,7 @@ from step.utils import WandbArtifactModelCheckpoint
 
 torch.set_float32_matmul_precision("medium")
 torch.multiprocessing.set_sharing_strategy("file_system")
-pl.seed_everything(42)
+pl.seed_everything(args.seed)
 config = vars(args)
 logger = pl.loggers.WandbLogger(
     project="step",
@@ -69,6 +79,9 @@ graph_transforms = [
 ]
 pre_transforms = [pyg.transforms.Center(), pyg.transforms.NormalizeRotation()]
 transforms = [PosNoise(args.posnoise), masktype_transform[args.masktype](args.maskfrac)]
+if args.sequence_only:
+    # Load-time rather than pre_transform, so existing processed chunks don't need reprocessing
+    transforms.insert(0, SequenceOnly())
 if args.clean_graph:
     pre_transforms += graph_transforms
 else:
@@ -111,3 +124,7 @@ trainer = pl.Trainer(
     # profiler="pytorch"
 )
 trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume)
+# Pretraining compute for reporting; params are counted after fit because the model has lazy layers
+if trainer.is_global_zero:
+    run.summary["num_params"] = sum(p.numel() for p in model.parameters())
+    run.summary["world_size"] = trainer.world_size

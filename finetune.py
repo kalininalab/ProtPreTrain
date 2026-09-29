@@ -28,7 +28,12 @@ parser.add_argument("--ablation", type=str, default="none", choices=["none", "se
 parser.add_argument(
     "--ablation_maskfrac", type=float, default=1.0, help="Fraction of residues masked by --ablation structure"
 )
+parser.add_argument(
+    "--random_init", action="store_true", help="No-pretraining control: reinitialise the wandb model's weights"
+)
+parser.add_argument("--seed", type=int, default=42)
 config = parser.parse_args()
+pl.seed_everything(config.seed)
 
 logger = pl.loggers.WandbLogger(project=config.dataset, log_model=True, dir="wandb", config=config, entity="rindti")
 
@@ -52,6 +57,7 @@ data = {
     batch_size=config.batch_size,
     ablation=config.ablation,
     ablation_maskfrac=config.ablation_maskfrac,
+    random_init=config.random_init,
 )
 trainer = pl.Trainer(
     accelerator="gpu",
