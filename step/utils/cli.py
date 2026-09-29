@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, Union
 
 import yaml
 
+
 def str_to_bool(value: str) -> bool:
     """Command line inputs that are bools."""
     if isinstance(value, bool):
@@ -15,6 +16,7 @@ def str_to_bool(value: str) -> bool:
         return False
     else:
         raise argparse.ArgumentTypeError("Boolean value expected.")
+
 
 def remove_arg_prefix(prefix: str, kwargs: dict) -> dict:
     """Removes the prefix from all the args.

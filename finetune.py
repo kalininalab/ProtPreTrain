@@ -3,11 +3,11 @@ import warnings
 
 import pytorch_lightning as pl
 import torch
-
 import wandb
+
 from step.data import FluorescenceDataModule, HomologyDataModule, StabilityDataModule
 from step.data.datamodules import DTIDataModule
-from step.models import HomologyModel, RegressionModel, DTIModel
+from step.models import DTIModel, HomologyModel, RegressionModel
 
 # Ignore all deprecation warnings
 torch.set_float32_matmul_precision("medium")

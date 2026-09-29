@@ -5,11 +5,10 @@ import torch
 import torch.nn.functional as F
 import torch_geometric as pyg
 import torchmetrics as metrics
+import wandb
 from pytorch_lightning import LightningModule
 from torch_geometric.data import Data
 from torchmetrics import ConfusionMatrix
-
-import wandb
 
 from ..data.parsers import THREE_TO_ONE
 from ..utils import WarmUpCosineLR, plot_aa_tsne, plot_confmat, plot_node_embeddings

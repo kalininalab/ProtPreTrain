@@ -48,9 +48,9 @@ if args.sequence_only and args.clean_graph:
 import pytorch_lightning as pl
 import torch
 import torch_geometric as pyg
+import wandb
 from lightning.pytorch.strategies import DDPStrategy
 
-import wandb
 from step.data import FoldCompDataModule, MaskType, MaskTypeAnkh, MaskTypeBERT, PosNoise, RandomWalkPE
 from step.data.transforms import SequenceOnly
 from step.models import DenoiseModel

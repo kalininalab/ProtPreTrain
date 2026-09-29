@@ -23,6 +23,9 @@ color = true
 [tool.isort]
 profile = "black"
 line_length = 119
+# a local wandb/ run directory otherwise makes isort treat wandb as first-party
+known_third_party = ["wandb"]
+known_first_party = ["step"]
 
 [tool.mypy]
 ignore_missing_imports = true

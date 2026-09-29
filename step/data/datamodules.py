@@ -5,6 +5,7 @@ import ankh
 import numpy as np
 import torch
 import torch_geometric.transforms as T
+import wandb
 from pytorch_lightning import LightningDataModule, Trainer
 from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
@@ -12,10 +13,8 @@ from torch_geometric.transforms import BaseTransform
 from tqdm import tqdm
 from transformers import T5EncoderModel, T5Tokenizer, pipeline
 
-import wandb
-
 from ..models import DenoiseModel
-from .datasets import FluorescenceDataset, FoldCompDataset, HomologyDataset, StabilityDataset, DTIDataset
+from .datasets import DTIDataset, FluorescenceDataset, FoldCompDataset, HomologyDataset, StabilityDataset
 from .samplers import DynamicBatchSampler
 from .transforms import RandomWalkPE, SequenceOnly, StructureOnly
 

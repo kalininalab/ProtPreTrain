@@ -4,8 +4,8 @@ import sys
 import timeit
 
 import torch_geometric.transforms as T
-
 import wandb
+
 from step.data import FoldCompDataset, RandomWalkPE
 
 ds_name = "afdb_rep_v4"

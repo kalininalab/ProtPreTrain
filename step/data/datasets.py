@@ -12,11 +12,10 @@ import h5py
 import numpy as np
 import pandas as pd
 import torch
+import wandb
 from joblib import Parallel, delayed
 from torch_geometric.data import Data, Dataset, InMemoryDataset, extract_tar
 from tqdm.auto import tqdm
-
-import wandb
 
 from .parsers import ProtStructure
 from .utils import apply_edits, compute_edits, extract_uniprot_id, get_start_end, save_file, smiles_to_ecfp

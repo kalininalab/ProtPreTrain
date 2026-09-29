@@ -1,14 +1,14 @@
-from math import ceil
 import os
 import re
 import shutil
+from math import ceil
 from pathlib import Path
 from typing import Iterable, List, Tuple
-from rdkit import Chem
-from rdkit.Chem import AllChem
 
 import Levenshtein
 import torch
+from rdkit import Chem
+from rdkit.Chem import AllChem
 from torch_geometric.data import Data
 
 from .parsers import aminoacids
