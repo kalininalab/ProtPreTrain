@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import List, Literal
 
 import ankh
+import numpy as np
 import torch
 import torch_geometric.transforms as T
 from pytorch_lightning import LightningDataModule, Trainer
@@ -34,6 +35,7 @@ class FoldCompDataModule(LightningDataModule):
         batch_sampling: bool = False,
         max_num_nodes: int = 0,
         subset: int = None,
+        max_length: int = None,
     ):
         super().__init__()
         self.db_name = db_name
@@ -45,6 +47,7 @@ class FoldCompDataModule(LightningDataModule):
         self.batch_sampling = batch_sampling
         self.max_num_nodes = max_num_nodes
         self.subset = subset
+        self.max_length = max_length
 
     def _get_dataloader(self, ds: Dataset, shuffle: bool = False) -> DataLoader:
         if self.batch_sampling:
@@ -84,6 +87,8 @@ class FoldCompDataModule(LightningDataModule):
             pre_transform=pre_transform,
             num_workers=self.num_workers,
         )
+        if self.max_length:
+            self.train = self.train.index_select(np.flatnonzero(self.train.lengths() <= self.max_length).tolist())
         if self.subset:
             self.train = self.train[: self.subset]
 

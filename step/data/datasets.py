@@ -100,6 +100,20 @@ class FoldCompDataset(Dataset):
             delayed(self.process_chunk)(start, finish) for start, finish in self._get_chunks()
         )
 
+    def _chunk_lengths(self, start_num: int, end_num: int) -> np.ndarray:
+        with h5py.File(self._chunk_name(start_num), "r") as h5py_file:
+            return np.array([h5py_file[f"data_{idx}"]["x"].shape[0] for idx in range(start_num, end_num)])
+
+    def lengths(self) -> np.ndarray:
+        """Number of residues per structure, read from HDF5 shapes and cached in the processed dir."""
+        path = f"{self.processed_dir}/lengths.npy"
+        if not os.path.exists(path):
+            chunks = Parallel(n_jobs=self.num_workers)(
+                delayed(self._chunk_lengths)(start, finish) for start, finish in self._get_chunks()
+            )
+            np.save(path, np.concatenate(chunks))
+        return np.load(path)
+
     def get(self, idx: int) -> Any:
         """Get a single datapoint from the dataset."""
         filename = self._chunk_name(idx // self.chunk_size * self.chunk_size)

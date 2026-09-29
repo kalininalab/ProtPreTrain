@@ -35,6 +35,7 @@ parser.add_argument("--batch_sampling", type=str_to_bool, default=False)
 parser.add_argument("--max_num_nodes", type=int, default=4096, help="Max num nodes in a dynamic batch")
 parser.add_argument("--batch_size", type=int, default=32)
 parser.add_argument("--max_epochs", type=int, default=10)
+parser.add_argument("--max_length", type=int, default=1022, help="Drop structures longer than this (as in ESM)")
 parser.add_argument("--subset", type=int, default=None)
 parser.add_argument("--lr", type=float, default=1e-4)
 parser.add_argument("--num_nodes", type=int, default=1, help="Computing nodes")
@@ -96,6 +97,7 @@ datamodule = FoldCompDataModule(
     max_num_nodes=args.max_num_nodes,
     num_workers=args.num_workers,
     subset=args.subset,
+    max_length=args.max_length,
 )
 datamodule.setup()
 
