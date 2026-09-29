@@ -15,7 +15,9 @@ torch.multiprocessing.set_sharing_strategy("file_system")
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability", "homology", "dti"])
+parser.add_argument(
+    "--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability", "homology", "dti"]
+)
 parser.add_argument("--model_source", type=str, choices=["wandb", "huggingface", "ankh", "prostt5"])
 parser.add_argument("--model", type=str)
 parser.add_argument("--hidden_dim", type=int, default=512)
@@ -23,6 +25,9 @@ parser.add_argument("--dropout", type=float, default=0.2)
 parser.add_argument("--batch_size", type=int, default=256)
 parser.add_argument("--num_workers", type=int, default=0)
 parser.add_argument("--ablation", type=str, default="none", choices=["none", "sequence", "structure"])
+parser.add_argument(
+    "--ablation_maskfrac", type=float, default=1.0, help="Fraction of residues masked by --ablation structure"
+)
 config = parser.parse_args()
 
 logger = pl.loggers.WandbLogger(project=config.dataset, log_model=True, dir="wandb", config=config, entity="rindti")
@@ -46,6 +51,7 @@ data = {
     num_workers=config.num_workers,
     batch_size=config.batch_size,
     ablation=config.ablation,
+    ablation_maskfrac=config.ablation_maskfrac,
 )
 trainer = pl.Trainer(
     accelerator="gpu",

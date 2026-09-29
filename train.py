@@ -18,6 +18,12 @@ parser.add_argument("--masktype", type=str, default="normal", choices=["normal",
 parser.add_argument("--maskfrac", type=float, default=0.15)
 parser.add_argument("--radius", type=int, default=10)
 parser.add_argument("--walk_length", type=int, default=20)
+parser.add_argument(
+    "--clean_graph",
+    type=str_to_bool,
+    default=False,
+    help="Ablation: build radius graph + PE from clean coordinates at process time (leaks noise-free structure)",
+)
 parser.add_argument("--batch_sampling", type=str_to_bool, default=False)
 parser.add_argument("--max_num_nodes", type=int, default=4096, help="Max num nodes in a dynamic batch")
 parser.add_argument("--batch_size", type=int, default=32)
@@ -54,16 +60,24 @@ logger = pl.loggers.WandbLogger(
 )
 masktype_transform = {"normal": MaskType, "ankh": MaskTypeAnkh, "bert": MaskTypeBERT}
 
+# Graph + PE are built after PosNoise by default, so connectivity carries no information about the noise target.
+# At load time RandomWalkPE stays on CPU: CUDA can't be initialised in forked dataloader workers.
+graph_transforms = [
+    pyg.transforms.RadiusGraph(args.radius),
+    pyg.transforms.ToUndirected(),
+    RandomWalkPE(args.walk_length, attr_name="pe", cuda=args.clean_graph),
+]
+pre_transforms = [pyg.transforms.Center(), pyg.transforms.NormalizeRotation()]
+transforms = [PosNoise(args.posnoise), masktype_transform[args.masktype](args.maskfrac)]
+if args.clean_graph:
+    pre_transforms += graph_transforms
+else:
+    transforms += graph_transforms
+
 datamodule = FoldCompDataModule(
     db_name=args.dataset,
-    pre_transforms=[
-        pyg.transforms.Center(),
-        pyg.transforms.NormalizeRotation(),
-        pyg.transforms.RadiusGraph(args.radius),
-        pyg.transforms.ToUndirected(),
-        RandomWalkPE(args.walk_length, attr_name="pe", cuda=True),
-    ],
-    transforms=[PosNoise(args.posnoise), masktype_transform[args.masktype](args.maskfrac)],
+    pre_transforms=pre_transforms,
+    transforms=transforms,
     batch_sampling=args.batch_sampling,
     batch_size=args.batch_size,
     max_num_nodes=args.max_num_nodes,

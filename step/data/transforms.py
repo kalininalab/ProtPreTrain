@@ -165,16 +165,22 @@ class MaskTypeWeighted(MaskType):
 
 
 class SequenceOnly:
-    """Removes all node features except the sequence."""
+    """Replace coordinates with a straight line (3.8 A spacing), so only sequence order is left as structure.
+
+    Must run before any structure-derived pre-transform (RadiusGraph, RandomWalkPE, ...), otherwise edges and PE
+    still come from the true structure.
+    """
 
     def __call__(self, batch) -> torch.Tensor:
         n = batch.x.size(0)
-        batch.pos = torch.stack([torch.arange(0, n) * 3.8 - (3.8 * (n - 1) / 2), torch.zeros(n), torch.zeros(n)], dim=1)
+        batch.pos = torch.stack(
+            [torch.arange(0, n) * 3.8 - (3.8 * (n - 1) / 2), torch.zeros(n), torch.zeros(n)], dim=1
+        )
         return batch
 
 
 class StructureOnly(MaskType):
-    """Mask everything"""
+    """Mask residue types with probability pick_prob (1.0 masks everything)."""
 
-    def __init__(self):
-        super().__init__(pick_prob=1.0)
+    def __init__(self, pick_prob: float = 1.0):
+        super().__init__(pick_prob=pick_prob)

@@ -130,7 +130,10 @@ class DownstreamDataset(InMemoryDataset):
     root = None
     wandb_name = None
 
-    def __init__(self, split: str, *, transform=None, pre_transform=None, pre_filter=None):
+    def __init__(
+        self, split: str, *, transform=None, pre_transform=None, pre_filter=None, processed_name: str = "processed"
+    ):
+        self.processed_name = processed_name
         super().__init__(self.root, transform, pre_transform, pre_filter)
         # weights_only=False is required: these archives hold pickled PyG Data
         # objects, and torch>=2.6 defaults weights_only=True, which refuses them.
@@ -143,6 +146,11 @@ class DownstreamDataset(InMemoryDataset):
         artifact = wandb.use_artifact(self.wandb_name, type="dataset")
         artifact_dir = artifact.download(self.raw_dir)
         extract_tar(str(Path(artifact_dir) / "dataset.tar.gz"), self.raw_dir)
+
+    @property
+    def processed_dir(self) -> str:
+        """Processed dir is configurable, so differently pre-transformed versions do not overwrite each other."""
+        return os.path.join(self.root, self.processed_name)
 
     @property
     def processed_file_names(self):

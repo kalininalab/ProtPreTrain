@@ -109,6 +109,7 @@ class DownstreamDataModule(LightningDataModule):
         num_workers: int = 8,
         shuffle: bool = True,
         ablation: Literal["none", "sequence", "structure"] = "none",
+        ablation_maskfrac: float = 1.0,
         radius: int = 10,
         walk_length: int = 20,
         **kwargs,
@@ -120,14 +121,21 @@ class DownstreamDataModule(LightningDataModule):
         self.num_workers = num_workers
         self.shuffle = shuffle
         self.ablation = ablation
+        self.ablation_maskfrac = ablation_maskfrac
         self.radius = radius
         self.walk_length = walk_length
         self.kwargs = kwargs
+        if ablation == "sequence" and feature_extract_model_source == "wandb":
+            # Sequence ablation changes the pre_transform, so it needs its own processed files
+            self.kwargs["processed_name"] = "processed_sequence"
 
     def _optional_add_transform(self):
         if self.feature_extract_model_source == "wandb":
+            # SequenceOnly goes first, so that edges and PE are built from the straight-line positions
+            pre_transform = [SequenceOnly()] if self.ablation == "sequence" else []
             pre_transform = T.Compose(
-                [
+                pre_transform
+                + [
                     T.Center(),
                     T.NormalizeRotation(),
                     T.RadiusGraph(self.radius),
@@ -135,11 +143,7 @@ class DownstreamDataModule(LightningDataModule):
                     RandomWalkPE(self.walk_length, "pe", cuda=torch.cuda.is_available()),
                 ]
             )
-            transform = []
-            if self.ablation == "sequence":
-                transform = [SequenceOnly()] + transform
-            elif self.ablation == "structure":
-                transform = [StructureOnly()] + transform
+            transform = [StructureOnly(self.ablation_maskfrac)] if self.ablation == "structure" else []
             transform = T.Compose(transform)
         else:
             pre_transform = None
