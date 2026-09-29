@@ -60,7 +60,7 @@ data = {
     random_init=config.random_init,
 )
 trainer = pl.Trainer(
-    accelerator="gpu",
+    accelerator="auto",
     devices=-1,
     precision="bf16-mixed",
     max_epochs=10000,

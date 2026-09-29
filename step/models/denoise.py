@@ -52,7 +52,7 @@ class DenoiseModel(LightningModule):
         attn_type: Literal["multihead", "performer"] = "performer",
         dropout: float = 0.5,
         alpha: float = 0.5,
-        predict_all: bool = True,
+        predict_all: bool = False,
         walk_length: int = 20,
         lr: float = 1e-4,
         **kwargs,

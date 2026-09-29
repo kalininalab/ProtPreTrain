@@ -33,7 +33,6 @@ class FoldCompDataset(Dataset):
         num_workers: int = 16,
         chunk_size: int = 4096,
     ) -> None:
-        torch.set_num_interop_threads(1)
         torch.set_num_threads(1)
         self.db_name = db_name
         self.pre_transform = pre_transform
@@ -96,7 +95,7 @@ class FoldCompDataset(Dataset):
         """Process the whole dataset for the dataset."""
         os.makedirs(f"{self.processed_dir}/data", exist_ok=True)
         print("Processing chunks in parallel...")
-        Parallel(n_jobs=self.num_workers)(
+        Parallel(n_jobs=max(self.num_workers, 1))(
             delayed(self.process_chunk)(start, finish) for start, finish in self._get_chunks()
         )
 
@@ -108,7 +107,7 @@ class FoldCompDataset(Dataset):
         """Number of residues per structure, read from HDF5 shapes and cached in the processed dir."""
         path = f"{self.processed_dir}/lengths.npy"
         if not os.path.exists(path):
-            chunks = Parallel(n_jobs=self.num_workers)(
+            chunks = Parallel(n_jobs=max(self.num_workers, 1))(
                 delayed(self._chunk_lengths)(start, finish) for start, finish in self._get_chunks()
             )
             np.save(path, np.concatenate(chunks))

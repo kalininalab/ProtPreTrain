@@ -12,7 +12,7 @@ parser.add_argument("--num_layers", type=int, default=12)
 parser.add_argument("--attn_type", type=str, default="performer")
 parser.add_argument("--dropout", type=float, default=0.5)
 parser.add_argument("--alpha", type=float, default=0.5)
-parser.add_argument("--predict_all", type=str_to_bool, default=True)
+parser.add_argument("--predict_all", type=str_to_bool, default=False)
 parser.add_argument("--posnoise", type=float, default=1.0)
 parser.add_argument("--masktype", type=str, default="normal", choices=["normal", "ankh", "bert"])
 parser.add_argument("--maskfrac", type=float, default=0.15)
@@ -99,16 +99,17 @@ datamodule = FoldCompDataModule(
     subset=args.subset,
     max_length=args.max_length,
 )
-datamodule.setup()
 
 run = logger.experiment
 model = DenoiseModel(**config)
 trainer = pl.Trainer(
-    accelerator="gpu",
+    accelerator="auto",
     max_epochs=args.max_epochs,
     precision="bf16-mixed",
     strategy="auto",
     devices="auto",
+    # the dynamic batch sampler shards across ranks itself
+    use_distributed_sampler=not args.batch_sampling,
     num_nodes=args.num_nodes,
     callbacks=[
         WandbArtifactModelCheckpoint(

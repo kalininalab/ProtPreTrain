@@ -6,7 +6,6 @@ import numpy as np
 import torch
 import torch_geometric.transforms as T
 from pytorch_lightning import LightningDataModule, Trainer
-from torch.utils.data import RandomSampler, SequentialSampler
 from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import BaseTransform
@@ -51,46 +50,41 @@ class FoldCompDataModule(LightningDataModule):
 
     def _get_dataloader(self, ds: Dataset, shuffle: bool = False) -> DataLoader:
         if self.batch_sampling:
-            assert self.max_num_nodes > 0
-            if self.shuffle:
-                sampler = RandomSampler(ds)
-            else:
-                sampler = SequentialSampler(ds)
-            batch_sampler = DynamicBatchSampler(
-                ds,
-                sampler,
-                mode="node",
-                max_num=self.max_num_nodes,
-                skip_too_big=True,
-                num_steps=len(ds),
-            )
-            return DataLoader(
-                ds,
-                batch_sampler=batch_sampler,
-                num_workers=self.num_workers,
-                pin_memory=True,
-            )
-        else:
-            return DataLoader(ds, **self._dl_kwargs(shuffle))
+            batch_sampler = DynamicBatchSampler(self.lengths, self.max_num_nodes, shuffle=self.shuffle)
+            return DataLoader(ds, batch_sampler=batch_sampler, num_workers=self.num_workers, pin_memory=True)
+        return DataLoader(ds, **self._dl_kwargs(shuffle))
 
     def train_dataloader(self):
         """Train dataloader."""
         return self._get_dataloader(self.train, shuffle=True)
 
-    def setup(self, stage: str = None):
-        """Load the individual datasets."""
-        pre_transform = T.Compose(self.pre_transforms)
-        transform = T.Compose(self.transforms)
-        self.train = FoldCompDataset(
+    def _dataset(self) -> FoldCompDataset:
+        return FoldCompDataset(
             db_name=self.db_name,
-            transform=transform,
-            pre_transform=pre_transform,
+            transform=T.Compose(self.transforms),
+            pre_transform=T.Compose(self.pre_transforms),
             num_workers=self.num_workers,
         )
-        if self.max_length:
-            self.train = self.train.index_select(np.flatnonzero(self.train.lengths() <= self.max_length).tolist())
-        if self.subset:
-            self.train = self.train[: self.subset]
+
+    def prepare_data(self):
+        """Process the dataset and cache lengths on a single process, so DDP ranks don't race on first use."""
+        ds = self._dataset()
+        if self.max_length or self.batch_sampling:
+            ds.lengths()
+
+    def setup(self, stage: str = None):
+        """Load the individual datasets."""
+        self.train = self._dataset()
+        # lengths stay aligned with self.train, the batch sampler sizes batches from them
+        keep = np.arange(len(self.train))
+        if self.max_length or self.batch_sampling:
+            self.lengths = self.train.lengths()
+            if self.max_length:
+                keep = np.flatnonzero(self.lengths <= self.max_length)
+        keep = keep[: self.subset]
+        self.train = self.train.index_select(keep.tolist())
+        if self.batch_sampling:
+            self.lengths = self.lengths[keep]
 
     def _dl_kwargs(self, shuffle: bool = False):
         return dict(
@@ -274,7 +268,7 @@ class DownstreamDataModule(LightningDataModule):
         trainer = Trainer(
             callbacks=[],
             logger=False,
-            accelerator="gpu",
+            accelerator="auto",
             precision="bf16-mixed",
         )
         model = self.load_pretrained_model()

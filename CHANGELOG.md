@@ -3,7 +3,56 @@
 All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — 2026-08-19
+## [Unreleased] — 2026-09-29
+
+Pre-publication pass on experimental validity and portability. **Every pretrained
+checkpoint produced before this must be retrained** (items 1 and 3).
+
+### ⚠️ Breaking / behaviour-changing
+
+1. **Denoising no longer leaks the clean structure.** The radius graph and
+   random-walk PE were baked into the processed chunks from clean coordinates while
+   `PosNoise` ran at load time, so the model saw noise-free connectivity while
+   predicting the noise. They are now built at load time after `PosNoise`.
+   `--clean_graph true` restores the old ordering as an ablation. Existing processed
+   chunks stay valid; PyG warns once that the pre-transform changed.
+2. **The sequence-only ablation is now sequence-only.** `SequenceOnly` runs before the
+   radius graph and PE, so they come from the straight-line positions rather than the
+   true structure. Its processed files go to `processed_sequence/`.
+3. **`predict_all` defaults to `False`** (`train.py` and `DenoiseModel`). With `True`
+   the type loss was dominated by unmasked residues whose type is in the input.
+4. **Pretraining drops structures longer than 1022 residues** (`--max_length`, as in
+   ESM). Lengths are read from HDF5 shapes and cached in `processed/lengths.npy`.
+
+### Added
+
+- `finetune.py --random_init`: no-pretraining control, same architecture, fresh weights.
+- `train.py --sequence_only`: compute-matched sequence-only pretraining control.
+- `--seed` on `train.py` and `finetune.py` (finetune previously set none).
+- `finetune.py --ablation_maskfrac`: masking rate for `--ablation structure`.
+- `scripts/aggregate_results.py`: mean and 95% CI across seeds from wandb, plus
+  pretraining GPU-hours (`train.py` now logs `num_params` and `world_size`).
+
+### Fixed
+
+- `DynamicBatchSampler` rewritten. It loaded (and transformed) every sample in the
+  main process to size batches, repeated samples after skipping an oversized one, and
+  under DDP each rank yielded empty batches after exhausting its shard. It now batches
+  from cached lengths and shards batches evenly across ranks.
+- `train.py` crashed at `trainer.fit`: `setup()` was called manually and again by
+  Lightning, and `FoldCompDataset.__init__` called `torch.set_num_interop_threads`,
+  which raises on a second call. Both removed; one-time processing moved to
+  `prepare_data()` so DDP ranks don't race on first use.
+- `num_workers=0` passed `n_jobs=0` to joblib in dataset processing.
+
+### Changed
+
+- Cluster-agnostic: `train.py` and `finetune.py` use `accelerator="auto"` and all
+  visible GPUs instead of hardcoding 4.
+- Removed the SLURM job scripts, `scripts/wandb_sync.sh`, the stale `Dockerfile` and
+  the stale `config/*.yaml`.
+
+## [2026-08-19] — maintenance pass
 
 Maintenance and pre-publication pass: dependency audit/upgrade (Phase 1) and bug
 audit (Phase 2). No model architecture or training-objective changes were made
@@ -179,17 +228,10 @@ Confirmed correct — recorded so they are not "fixed" into bugs later:
 ### Known issues (not addressed in this pass)
 
 - No LICENSE file — blocks publication. Awaiting a decision on which license.
-- `config/*.yaml` reference `FoldSeekDataModule`, a class that no longer exists;
-  nothing loads them.
-- `train.py` hardcodes `devices=4, accelerator="gpu"`; `finetune.py` hardcodes
-  `devices=-1`. Neither runs on a different machine without editing.
-- `finetune.py` sets no seed (`train.py` does: `pl.seed_everything(42)`).
 - `train.py:51` passes `wandb.Settings(start_method="fork")`, which wandb 0.28
   reports as deprecated and non-functional.
 - `step/models/downstream.py:133` uses `torch.tensor(batch.y)` on an existing
   tensor, which warns; `.detach().clone()` is the recommended form.
-- `DynamicBatchSampler.__iter__` inherits an upstream PyG quirk: `skip_too_big`
-  does not advance `num_processed`, so an oversized sample can be re-examined.
 - No test suite. `test.py`, `test.ipynb`, `test2.ipynb` are scratch/benchmark
   files despite the pytest config in `pyproject.toml`.
 
