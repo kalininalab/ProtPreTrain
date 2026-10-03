@@ -3,6 +3,46 @@
 All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — 2026-10-04 — Weights & Biases replaced by MLflow
+
+MLflow now tracks experiments (params and metrics only). Checkpoints and datasets
+are plain files on local disk; nothing is uploaded or downloaded. `wandb` is no
+longer a dependency.
+
+### ⚠️ Breaking / behaviour-changing
+
+- **Tracking store:** `$MLFLOW_TRACKING_URI`, defaulting to `sqlite:///mlflow.db` in
+  the working directory. View with `mlflow ui --backend-store-uri sqlite:///mlflow.db`;
+  point at a shared server by setting the env var.
+- **`--wandb_project` → `--experiment`** on `train.py` (default `step`) and
+  `finetune.py` (default: the dataset name).
+- **`finetune.py --model_source wandb` is gone.** Pass a local checkpoint:
+  `--model_source checkpoint --model checkpoints/<run_id>/<file>.ckpt`. An old W&B
+  checkpoint can be fetched once with
+  `uvx wandb artifact get rindti/step/model-<runid>:latest --root <dir>`.
+- **Downstream datasets are no longer downloaded.** Their raw files must be in
+  `data/<task>/raw/`; if any are missing, the dataset raises a `FileNotFoundError`
+  listing them and the one-time fetch command for the original W&B artifact.
+- **Checkpoints are no longer uploaded**; a plain `ModelCheckpoint` writes them to
+  `checkpoints/<mlflow run_id>/` (same layout as before).
+- `scripts/aggregate_results.py` reads MLflow (`--tracking_uri`, `--experiments`)
+  instead of the W&B API; GPU-hours come from the logged `train_time_s × world_size`.
+  Results that exist only in W&B are not included.
+
+### Added
+
+- `step.utils.mlflow_logger()`: builds the `MLFlowLogger` after creating the store and
+  experiment under a file lock (`<db>.lock`). Without it, concurrent first runs on a
+  fresh SQLite store raced on MLflow's schema migration and all failed.
+- `train.py` logs `num_params`, `world_size` and `train_time_s` as metrics.
+- Tests: MLflow logging of a short fit; the missing-dataset error.
+
+### Changed
+
+- `scripts/benchmark.py` logs to `<out>/mlflow.db` (experiment `step-bench`).
+- `mlflow` 3.16.1 and `filelock` added; `wandb` removed. mlflow's `databricks-sdk`
+  dependency caps protobuf below 7 (7.36.1 → 6.33.6).
+
 ## [Unreleased] — 2026-10-03 — `dev` branch ported in
 
 `dev` and this branch were independent rewrites of `69960b4`. The useful parts of

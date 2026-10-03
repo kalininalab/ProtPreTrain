@@ -15,9 +15,10 @@ Rules:
 ## What this is
 
 STEP: self-supervised pretraining of a graph transformer on protein structures (AlphaFold DB via foldcomp),
-then frozen-embedding evaluation on downstream tasks. Everything is PyTorch Lightning + PyTorch Geometric,
-with Weights & Biases (entity `rindti`) as the store for checkpoints *and* downstream datasets — most
-scripts assume an authenticated `wandb` session.
+then frozen-embedding evaluation on downstream tasks. Everything is PyTorch Lightning + PyTorch Geometric.
+MLflow tracks experiments (params + metrics only); checkpoints and datasets are plain files on local disk.
+The tracking store is `$MLFLOW_TRACKING_URI`, defaulting to `sqlite:///mlflow.db` in the working directory
+(`step/utils/tracking.py`); browse it with `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
 
 ## Commands
 
@@ -28,18 +29,18 @@ uv sync
 # Pretraining (uses every GPU visible to the process)
 python train.py --dataset afdb_rep_v4 --hidden_dim 512 --num_layers 12 --masktype normal --maskfrac 0.15
 # Small end-to-end smoke run (~30 s on one GPU): m_jannaschii is the smallest foldcomp DB (8 MB, 1773 structures)
-WANDB_MODE=offline python train.py --dataset m_jannaschii --subset 256 --val_size 32 --hidden_dim 192 --num_layers 2 --max_epochs 1
+python train.py --dataset m_jannaschii --subset 256 --val_size 32 --hidden_dim 192 --num_layers 2 --max_epochs 1
 
-# Downstream eval: freeze an encoder, embed the dataset, train an MLP head
-python finetune.py --dataset fluorescence --model_source wandb --model rindti/step/model-<runid>:latest
+# Downstream eval: freeze an encoder, embed the dataset, train an MLP head (raw data must be in data/<task>/raw)
+python finetune.py --dataset fluorescence --model_source checkpoint --model checkpoints/<run_id>/<file>.ckpt
 python finetune.py --dataset homology --model_source ankh --model ankh-base
 python finetune.py --dataset stability --model_source prostt5 --model Rostlab/ProstT5 --ablation sequence
 
-# Aggregate downstream test metrics over seeds (mean ± 95% CI) and pretraining GPU-hours from wandb
+# Aggregate downstream test metrics over seeds (mean ± 95% CI) and pretraining GPU-hours from MLflow
 python scripts/aggregate_results.py --out results.csv
 
 # Smoke tests (CPU, ~10 s): imports, forward/predict/training steps for the rw / seq / invariant configs,
-# rotation invariance, masking transforms, and a seeded loss snapshot
+# rotation invariance, masking transforms, MLflow logging, and a seeded loss snapshot
 python -m pytest
 
 # Lint / format (pre-commit: ruff + ruff-format at line-length 119, plus interrogate)
@@ -84,26 +85,31 @@ commits below 80% docstring coverage, so new public functions/classes need a doc
   runs and restarts every 200k steps in long ones. Loss = `alpha * noise_loss + (1 - alpha) * type_loss`; `predict_all` switches between
   predicting types for all nodes vs. only masked ones. `RedrawProjection` periodically redraws performer
   projection matrices — required for performer attention correctness.
-- `step/utils/checkpoint.py:WandbArtifactModelCheckpoint` uploads every saved checkpoint as a wandb artifact
-  named `model-<run_id>`; that artifact name is what `finetune.py --model` consumes.
+- Checkpoints are written by a plain Lightning `ModelCheckpoint` to `checkpoints/<mlflow run_id>/`; `--summary_json`
+  records the path, and `finetune.py --model_source checkpoint --model <path>` consumes it. Nothing is uploaded.
+- Loggers come from `step/utils/tracking.py:mlflow_logger()`, which creates the store and experiment under a file lock:
+  concurrent first runs on a fresh SQLite store otherwise race on MLflow's schema migration and all fail.
+  `train.py` logs hyperparameters only through `model.hparams` (every CLI arg arrives via `**kwargs`); also logging
+  `vars(args)` would fail, because MLflow rejects changing a param and the model rewrites some (e.g. `pe_dim=0`).
 
 **Downstream path** — `finetune.py` → a `DownstreamDataModule` subclass → a head in `step/models/downstream.py`.
 
 The key design point: the encoder is **never** fine-tuned. `DownstreamDataModule.setup()` builds the dataset,
 then `embed_splits()` runs the frozen feature extractor over every split up front and replaces the split with a
 plain list of `Data` objects whose `x` is the embedding. Only a small MLP head then trains.
-`feature_extract_model_source` selects the extractor (`wandb` artifact or local `checkpoint` = our `DenoiseModel`,
+`feature_extract_model_source` selects the extractor (local `checkpoint` = our `DenoiseModel`,
 plus `huggingface`, `ankh`, `prostt5` baselines) and *also* controls whether graph transforms are applied at all — the
 other sources are sequence models and get `transform = pre_transform = None`.
 
 - Downstream datasets (`FluorescenceDataset`, `StabilityDataset`, `HomologyDataset`, `DTIDataset`) are
-  `InMemoryDataset`s downloaded from wandb artifacts (`rindti/<task>/<task>_dataset:latest`), one processed
-  `.pt` per split. Fluorescence is special: it has a single GFP structure and derives per-mutant graphs via
+  `InMemoryDataset`s read from raw files placed by hand in `data/<task>/raw/` (nothing is downloaded; a missing
+  file raises an error naming the files and the one-time fetch of the original W&B artifact
+  `rindti/<task>/<task>_dataset`), one processed `.pt` per split. Fluorescence is special: it has a single GFP structure and derives per-mutant graphs via
   `compute_edits`/`apply_edits` in `step/data/utils.py`. Homology has three test splits
   (fold/superfamily/family), which is why `HomologyModel.test_step` dispatches on `dataloader_idx`.
 - Heads use `LazySimpleMLP` (LazyLinear) so embedding dimension does not need to be known in advance.
 - `--ablation sequence|structure` injects `SequenceOnly`/`StructureOnly` transforms to zero out one modality,
-  and only applies to our `wandb`/`checkpoint` model.
+  and only applies to our `checkpoint` model.
 
 ## Gotchas
 
@@ -119,3 +125,4 @@ other sources are sequence models and get `transform = pre_transform = None`.
 - Precision is `bf16-mixed` only when CUDA is available: CPUs without native bf16 run it ~8× slower than fp32.
 - `scripts/benchmark.py` runs the pretraining ablation matrix (`CONFIGS`) and the frozen-embedding homology probe;
   `--preset local` uses `data/e_coli_bench` (symlinked E. coli proteome), `--preset scale` is the cluster setup.
+  Bench runs log to their own store, `<out>/mlflow.db` (experiment `step-bench`).
