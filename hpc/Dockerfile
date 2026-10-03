@@ -30,4 +30,10 @@ RUN cd /src && uv sync --frozen --no-dev --no-install-project --no-cache \
     && rm -rf /src && chmod -R a+rX /opt/python /opt/venv
 RUN python -c "import torch, torch_geometric, lightning, mlflow, foldcomp; print('torch', torch.__version__)"
 
+# A C compiler for Triton: torch 2.14 routes some eager-mode ops (e.g. the bmm_outer_product backward) to built-in
+# Triton kernels, which JIT-compile a small launcher with `cc` on first use. Without it training dies at the first
+# backward pass ("Failed to find C compiler"). Kept after the venv layers so adding it did not rebuild them.
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /workspace

@@ -134,7 +134,11 @@ tail -f ../runlogs/gpu.<cluster>.<proc>.out
 - **Shared data is prepared once.** Concurrent jobs that need the same foldcomp database, downstream dataset or
   `--embed_cache` file-lock it: one prepares, the rest wait. Still, run `prepare_<db>.txt` before a big pretraining
   batch so GPU jobs don't sit idle waiting for a download.
-- **First pull of the image on a node is slow** (several GB). The submit files use `:latest`; pin a run with
-  `-a 'docker_image=ghcr.io/ilsenatorov/step:env-<hash>'` (tags printed by `hpc/build.sh`).
+- **Images are pinned by content tag** (`env-<hash of uv.lock + hpc/Dockerfile>`) in `hpc/common.sub`;
+  `hpc/build.sh` updates that line after pushing - commit it. Never point jobs at `:latest`: execute nodes cache
+  images and do not re-pull a tag they already have, so a rebuilt `:latest` keeps running the old image there.
+  The first pull of a new image on a node takes a few minutes (several GB).
+- **Triton needs a C compiler at runtime** (torch 2.14 JIT-compiles some eager-mode kernels), so the image carries
+  `gcc`; without it training dies at the first backward pass.
 - **The group `/scratch` quota (10 TiB, shared) was at 9.84 TiB on 2026-10-04.** A full quota refuses every write,
   even a symlink. Check `/scratch/chair_kalinina/.quota_info` before moving `root` there.

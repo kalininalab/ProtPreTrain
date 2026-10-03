@@ -6,7 +6,7 @@
 root = /home/s8ilsena/step
 
 universe                = docker
-docker_image            = ghcr.io/ilsenatorov/step:latest
+docker_image            = ghcr.io/ilsenatorov/step:env-45504e864e82
 
 # job.sh sets up the environment and execs the arguments. Code, data and outputs all live on the shared filesystem
 # (mounted in the container), so nothing is transferred and absolute paths are valid on the execute node.

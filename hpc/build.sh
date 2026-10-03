@@ -12,8 +12,8 @@ set -euo pipefail
 IMAGE="${IMAGE:-ghcr.io/ilsenatorov/step}"
 cd "$(dirname "$0")/.."
 
-# Tag by the lock file's content, not the commit: the image only depends on the environment
-TAG="env-$(sha256sum uv.lock | cut -c1-12)"
+# Tag by content (lock file + Dockerfile), not the commit: the image only depends on those two
+TAG="env-$(cat uv.lock hpc/Dockerfile | sha256sum | cut -c1-12)"
 
 echo "==> building ${IMAGE}:${TAG}"
 docker build -f hpc/Dockerfile -t "${IMAGE}:${TAG}" -t "${IMAGE}:latest" .
@@ -31,4 +31,8 @@ gh auth token | docker login ghcr.io -u "$(gh api user --jq .login)" --password-
 
 docker push "${IMAGE}:${TAG}"
 docker push "${IMAGE}:latest"
-echo "Pushed ${IMAGE}:${TAG} and :latest. Submit files use :latest; pin with docker_image = ${IMAGE}:${TAG}."
+
+# Submit files pin the exact tag: execute nodes cache images and do not re-pull a tag they already have, so a
+# rebuilt :latest would silently keep running the old image there
+sed -i "s#^docker_image .*#docker_image            = ${IMAGE}:${TAG}#" hpc/common.sub
+echo "Pushed ${IMAGE}:${TAG} (and :latest) and pinned it in hpc/common.sub - commit that and git pull on the cluster."
