@@ -1,0 +1,7 @@
+# Allowlist: the image is environment-only (hpc/Dockerfile), so only the dependency spec goes into the context.
+# Without this the context would include .venv/ (~7 GB) and data/.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!.python-version

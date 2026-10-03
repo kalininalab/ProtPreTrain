@@ -1,0 +1,1 @@
+-, python scripts/merge_mlflow.py --src /home/s8ilsena/step/*/**/*.db --dest sqlite:////home/s8ilsena/step/merged.db

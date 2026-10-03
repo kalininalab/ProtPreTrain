@@ -1,0 +1,1 @@
+/home/s8ilsena/step/runs/demo/mlflow.db, python train.py --dataset m_jannaschii --subset 1024 --val_size 64 --hidden_dim 192 --num_layers 2 --max_epochs 2 --num_workers 7 --ckpt_dir /home/s8ilsena/step/runs/demo/checkpoints --resume auto --summary_json /home/s8ilsena/step/runs/demo/pretrain.json

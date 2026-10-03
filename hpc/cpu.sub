@@ -1,0 +1,19 @@
+# CPU jobs: data preparation, result aggregation, MLflow merging - anything too heavy for the 2 GB submit node.
+#
+#   condor_submit -a 'runfile=hpc/runs/prepare_afdb.txt' hpc/cpu.sub
+#
+# Same queue-file format as hpc/gpu.sub: `<mlflow store or ->, <command>`.
+
+include : hpc/common.sub
+
+job = cpu
+
+runfile = $(root)/ProtPreTrain/hpc/runs/empty.txt
+
+arguments = $(store) $(cmd)
+
+request_CPUs   = 8
+request_memory = 32G
+request_disk   = 20G
+
+queue store,cmd from $(runfile)

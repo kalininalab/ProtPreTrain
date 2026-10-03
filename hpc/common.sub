@@ -1,0 +1,27 @@
+# Shared preamble for every STEP submit file (pulled in with `include : hpc/common.sub`).
+#
+# `root` is the only hardcoded path. It is on /home because the chair_kalinina group's 10 TiB /scratch quota is
+# nearly full (9.84 TiB on 2026-10-04) and a full quota refuses every write; /home is slower NFS but has no group
+# quota. To move to /scratch later, change `root` and move the tree.
+root = /home/s8ilsena/step
+
+universe                = docker
+docker_image            = ghcr.io/ilsenatorov/step:latest
+
+# job.sh sets up the environment and execs the arguments. Code, data and outputs all live on the shared filesystem
+# (mounted in the container), so nothing is transferred and absolute paths are valid on the execute node.
+executable              = $(root)/ProtPreTrain/hpc/job.sh
+initialdir              = $(root)
+should_transfer_files   = NO
+
+# +WantGPUHomeMounted mounts /home, +WantScratchMounted mounts /scratch.
+# Never add `environment = ...`: the cluster only injects HOME when it is unset. Variables go in hpc/job.sh.
++WantGPUHomeMounted     = true
++WantScratchMounted     = true
+
+requirements            = UidDomain == "cs.uni-saarland.de"
+
+output                  = runlogs/$(job).$(ClusterId).$(ProcId).out
+error                   = runlogs/$(job).$(ClusterId).$(ProcId).err
+log                     = runlogs/$(job).$(ClusterId).log
+notification            = Never

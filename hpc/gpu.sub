@@ -1,0 +1,33 @@
+# GPU jobs: one condor job per line of a queue file, one GPU each (pretraining, finetuning/probes).
+#
+#   cd /home/s8ilsena/step/ProtPreTrain
+#   condor_submit -a 'runfile=hpc/runs/pretrain_demo.txt' hpc/gpu.sub
+#
+# Queue file lines:  <mlflow store>, <command>
+#   runs/demo/mlflow.db, python train.py --dataset m_jannaschii --ckpt_dir /home/s8ilsena/step/runs/demo/ckpt ...
+# The command must not contain commas (condor splits columns on them). Generate lines for the benchmark matrix with
+# `python3 scripts/benchmark.py --out /home/s8ilsena/step/bench pretrain --condor hpc/runs/bench_pretrain.txt`.
+#
+# Override resources per submission, e.g. 4 GPUs for one DDP pretraining run:
+#   condor_submit -a 'request_GPUs=4' -a 'request_CPUs=32' -a 'request_memory=128G' -a 'runfile=...' hpc/gpu.sub
+
+include : hpc/common.sub
+
+job = gpu
+
+runfile = $(root)/ProtPreTrain/hpc/runs/empty.txt
+
+arguments = $(store) $(cmd)
+
+request_GPUs   = 1
+request_CPUs   = 8
+request_memory = 32G
+
+# The cu130 torch wheels carry sm_75..sm_120: A100, L40S, H200 and Blackwell qualify; the P100 (6.0) and V100 (7.0)
+# nodes would fail at the first kernel launch.
+requirements = UidDomain == "cs.uni-saarland.de" && GPUs_Capability >= 7.5
+
+# A crashed job (node trouble, OOM) is retried; train.py --resume auto continues from <ckpt_dir>/last.ckpt
+max_retries = 2
+
+queue store,cmd from $(runfile)

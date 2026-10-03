@@ -2,6 +2,7 @@
 !.gitignore
 !.pre-commit-config.yaml
 !.python-version
+!.dockerignore
 __*__/
 *egg-info*
 *.out
@@ -13,6 +14,7 @@ mlflow.db.lock
 mlruns/
 mlartifacts/
 data/*
+/data
 *.ipynb
 logs/
 artifacts/

@@ -1,0 +1,1 @@
+-, python scripts/aggregate_results.py --db_glob /home/s8ilsena/step/*/**/*.db --out /home/s8ilsena/step/results.csv
