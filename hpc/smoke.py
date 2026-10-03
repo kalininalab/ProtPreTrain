@@ -33,5 +33,7 @@ import mlflow  # noqa: E402
 print("lightning ", lightning.__version__, "| mlflow", mlflow.__version__)
 
 # Pretraining databases are downloaded inside jobs, so the execute node needs outbound HTTPS
-with urllib.request.urlopen("https://foldcomp.steineggerlab.workers.dev/m_jannaschii.dbtype", timeout=30) as r:
+# (with a User-Agent: the server answers Python's default urllib one with 403)
+url = "https://foldcomp.steineggerlab.workers.dev/m_jannaschii.dbtype"
+with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "step-smoke"}), timeout=30) as r:
     print("network    foldcomp server reachable, HTTP", r.status)
