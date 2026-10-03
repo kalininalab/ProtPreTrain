@@ -18,7 +18,7 @@ from torch_geometric.data import Data, Dataset, InMemoryDataset, extract_tar
 from tqdm.auto import tqdm
 
 from .parsers import ProtStructure
-from .utils import apply_edits, compute_edits, extract_uniprot_id, get_start_end, save_file, smiles_to_ecfp
+from .utils import apply_edits, compute_edits, extract_uniprot_id, smiles_to_ecfp
 
 
 class FoldCompDataset(Dataset):

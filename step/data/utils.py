@@ -1,9 +1,5 @@
-import os
 import re
-import shutil
-from math import ceil
-from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import List, Tuple
 
 import Levenshtein
 import torch
@@ -62,34 +58,6 @@ def extract_uniprot_id(title: str) -> str:
         return title.split("-")[1]
     else:
         raise ValueError(f"Title '{title}' does not match any pattern.")
-
-
-def save_file(data_list: list, filename: str):
-    """While file is saving call in .tmp file, then rename to original filename."""
-    temp_filename = Path(filename).with_suffix(".tmp")
-    torch.save(data_list, temp_filename)
-    os.rename(temp_filename, filename)
-
-
-def replace_symlinks_with_copies(directory):
-    """Replace symlinks with copies of the actual files."""
-    for filename in os.listdir(directory):
-        file_path = os.path.join(directory, filename)
-        if os.path.islink(file_path):
-            # Resolve the symlink
-            real_file = os.readlink(file_path)
-            # Remove the symlink
-            os.remove(file_path)
-            # Copy the actual file
-            shutil.copy2(real_file, file_path)
-
-
-def get_start_end(dataset_len: int, num_workers: int) -> list[tuple[int, int]]:
-    """Get the start and end indices for each worker."""
-    k = ceil(dataset_len / num_workers)
-    l = [(x - k, x) for x in range(k, dataset_len, k)]
-    l.append((l[-1][1], dataset_len))
-    return l
 
 
 def smiles_to_ecfp(smiles: str, radius: int = 2, nbits: int = 2048) -> torch.Tensor:
