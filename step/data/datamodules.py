@@ -1,12 +1,10 @@
 import os
 import warnings
-from pathlib import Path
 from typing import List, Literal, Optional
 
 import numpy as np
 import torch
 import torch_geometric.transforms as T
-import wandb
 from lightning.pytorch import LightningDataModule, Trainer
 from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
@@ -141,13 +139,13 @@ class DownstreamDataModule(LightningDataModule):
         self.radius = radius
         self.walk_length = walk_length
         self.kwargs = kwargs
-        if ablation == "sequence" and feature_extract_model_source in ("wandb", "checkpoint"):
+        if ablation == "sequence" and feature_extract_model_source == "checkpoint":
             # Sequence ablation changes the pre_transform, so it needs its own processed files
             self.kwargs["processed_name"] = "processed_sequence"
 
     @property
     def _uses_denoise_model(self) -> bool:
-        return self.feature_extract_model_source in ("wandb", "checkpoint")
+        return self.feature_extract_model_source == "checkpoint"
 
     def _optional_add_transform(self, hparams: dict):
         if self._uses_denoise_model:
@@ -184,13 +182,7 @@ class DownstreamDataModule(LightningDataModule):
         return self._get_dataloader(self.test)
 
     def _load_denoise_model(self):
-        if self.feature_extract_model_source == "checkpoint":
-            p = self.feature_extract_model
-        else:
-            artifact = wandb.run.use_artifact(self.feature_extract_model, type="model")
-            artifact_dir = artifact.download()
-            p = [x for x in Path(artifact_dir).glob("*.ckpt")][0]
-        model = DenoiseModel.load_from_checkpoint(p, map_location="cpu")
+        model = DenoiseModel.load_from_checkpoint(self.feature_extract_model, map_location="cpu")
         if self.random_init:
             # No-pretraining control: same architecture and hyperparameters, fresh weights
             model = DenoiseModel(**model.hparams)

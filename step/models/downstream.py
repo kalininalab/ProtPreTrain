@@ -3,7 +3,6 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 import torchmetrics.functional as metrics
-import wandb
 from lightning.pytorch import LightningModule
 from torch_geometric.data import Data
 from torch_geometric.utils import to_dense_batch
@@ -57,8 +56,6 @@ class BaseModel(LightningModule):
 
     def training_step(self, *args, **kwargs) -> dict:
         """Training step."""
-        if self.global_step == 0:
-            wandb.define_metric("val/loss", summary="min")
         return self.shared_step(*args, **kwargs, step_name="train")
 
     def validation_step(self, *args, **kwargs) -> dict:

@@ -12,9 +12,8 @@ import h5py
 import numpy as np
 import pandas as pd
 import torch
-import wandb
 from joblib import Parallel, delayed
-from torch_geometric.data import Data, Dataset, InMemoryDataset, extract_tar
+from torch_geometric.data import Data, Dataset, InMemoryDataset
 from tqdm.auto import tqdm
 
 from .parsers import ProtStructure
@@ -141,7 +140,6 @@ class DownstreamDataset(InMemoryDataset):
 
     splits = {"train": 0, "val": 1, "test": 2}
     root = None
-    wandb_name = None
 
     def __init__(
         self, split: str, *, transform=None, pre_transform=None, pre_filter=None, processed_name: str = "processed"
@@ -153,12 +151,15 @@ class DownstreamDataset(InMemoryDataset):
         self.data, self.slices = torch.load(self.processed_paths[self.splits[split]], weights_only=False)
 
     def download(self):
-        """Download the dataset from wandb."""
-        if wandb.run is None:
-            wandb.init()
-        artifact = wandb.use_artifact(self.wandb_name, type="dataset")
-        artifact_dir = artifact.download(self.raw_dir)
-        extract_tar(str(Path(artifact_dir) / "dataset.tar.gz"), self.raw_dir)
+        """Downstream datasets are not downloaded automatically: their raw files must already be in raw_dir."""
+        task = Path(self.root).name
+        missing = [f for f in self.raw_file_names if not os.path.exists(os.path.join(self.raw_dir, f))]
+        raise FileNotFoundError(
+            f"{type(self).__name__}: missing raw files in {self.raw_dir}: {', '.join(missing)}\n"
+            f"Place them there by hand. The original copy is the W&B artifact rindti/{task}/{task}_dataset, e.g.:\n"
+            f"  uvx wandb artifact get rindti/{task}/{task}_dataset:latest --root {self.raw_dir}\n"
+            f"  tar -xzf {self.raw_dir}/dataset.tar.gz -C {self.raw_dir}"
+        )
 
     @property
     def processed_dir(self) -> str:
@@ -193,7 +194,6 @@ class FluorescenceDataset(DownstreamDataset):
     """Predict fluorescence for GFP mutants."""
 
     root = "data/fluorescence"
-    wandb_name = "rindti/fluorescence/fluorescence_dataset:latest"
 
     @property
     def raw_file_names(self):
@@ -229,7 +229,6 @@ class StabilityDataset(DownstreamDataset):
     """Predict stability for various proteins."""
 
     root = "data/stability"
-    wandb_name = "rindti/stability/stability_dataset:latest"
 
     @property
     def raw_file_names(self):
@@ -264,7 +263,6 @@ class StabilityDataset(DownstreamDataset):
 class HomologyDataset(DownstreamDataset):
     splits = {"train": 0, "val": 1, "test_fold": 2, "test_superfamily": 3, "test_family": 4}
     root = "data/homology"
-    wandb_name = "rindti/homology/homology_dataset:latest"
 
     @property
     def raw_file_names(self):
@@ -305,7 +303,6 @@ class DTIDataset(DownstreamDataset):
     """LP-PDBBind, molecules as ECFP."""
 
     root = "data/dti"
-    wandb_name = "rindti/dti/dti_dataset:latest"
 
     @property
     def raw_file_names(self):

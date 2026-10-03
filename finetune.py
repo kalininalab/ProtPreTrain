@@ -4,11 +4,11 @@ import warnings
 
 import lightning.pytorch as pl
 import torch
-import wandb
 
 from step.data import FluorescenceDataModule, HomologyDataModule, StabilityDataModule
 from step.data.datamodules import DTIDataModule
 from step.models import DTIModel, HomologyModel, RegressionModel
+from step.utils import tracking_uri
 
 # Ignore all deprecation warnings
 torch.set_float32_matmul_precision("medium")
@@ -19,8 +19,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability", "homology", "dti"]
 )
-parser.add_argument("--model_source", type=str, choices=["wandb", "checkpoint", "huggingface", "ankh", "prostt5"])
-parser.add_argument("--model", type=str, help="wandb artifact, local .ckpt path (checkpoint), or model name")
+parser.add_argument("--model_source", type=str, choices=["checkpoint", "huggingface", "ankh", "prostt5"])
+parser.add_argument("--model", type=str, help="Local .ckpt path (checkpoint) or model name")
 parser.add_argument("--hidden_dim", type=int, default=512)
 parser.add_argument("--dropout", type=float, default=0.2)
 parser.add_argument("--batch_size", type=int, default=256)
@@ -30,11 +30,11 @@ parser.add_argument(
     "--ablation_maskfrac", type=float, default=1.0, help="Fraction of residues masked by --ablation structure"
 )
 parser.add_argument(
-    "--random_init", action="store_true", help="No-pretraining control: reinitialise the wandb model's weights"
+    "--random_init", action="store_true", help="No-pretraining control: reinitialise the checkpoint model's weights"
 )
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--max_epochs", type=int, default=10000)
-parser.add_argument("--wandb_project", type=str, default=None, help="Defaults to the dataset name")
+parser.add_argument("--experiment", type=str, default=None, help="MLflow experiment name; defaults to the dataset")
 parser.add_argument(
     "--embed_cache",
     type=str,
@@ -45,12 +45,8 @@ parser.add_argument("--summary_json", type=str, default=None, help="Write the te
 config = parser.parse_args()
 pl.seed_everything(config.seed)
 
-logger = pl.loggers.WandbLogger(
-    project=config.wandb_project or config.dataset, log_model=True, dir="wandb", config=config, entity="rindti"
-)
-
-# logger.experiment starts the run; wandb.config is unusable before that
-config = logger.experiment.config
+logger = pl.loggers.MLFlowLogger(experiment_name=config.experiment or config.dataset, tracking_uri=tracking_uri())
+logger.log_hyperparams(vars(config))
 print(config)
 if config.dataset == "homology":
     model = HomologyModel(hidden_dim=config.hidden_dim, dropout=config.dropout, num_classes=1195)
