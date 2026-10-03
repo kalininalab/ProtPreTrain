@@ -9,7 +9,8 @@ Subcommands (run from the repo root):
 
 Every run lives in ``<out>/<config>_s<seed>/`` (``pretrain.json``, ``pretrain.log``, ``probe_h<head_seed>.json``,
 ``probe_h<head_seed>.log``). A run whose json already exists is skipped, so any subcommand can be re-run after an
-interruption. Subprocesses get ``WANDB_MODE=offline`` and ``--wandb_project step-bench``.
+interruption. Subprocesses log to MLflow in ``<out>/mlflow.db`` (experiment ``step-bench``), separate from the
+main tracking store.
 
 Unknown arguments are passed through verbatim to train.py / finetune.py after the preset/config arguments (argparse
 keeps the last occurrence, so they override), e.g. ``pretrain --configs legacy -- --max_epochs 2 --num_workers 4``.
@@ -106,7 +107,7 @@ RANDOM_INIT_OF = "+invariant"  # the final cumulative config
 PROBE = {"dataset": "homology", "max_epochs": 200}
 PRETRAIN_METRICS = ["train_time_s", "num_params", "val/pred_acc", "val/noise_loss", "val/pred_loss", "train/loss"]
 PROBE_METRICS = ["test_fold/acc", "test_superfamily/acc", "test_family/acc"]
-WANDB_PROJECT = "step-bench"
+EXPERIMENT = "step-bench"
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -129,13 +130,13 @@ def run_dir(out: Path, name: str, seed: int) -> Path:
     return out / f"{name}_s{seed}"
 
 
-def run_cmd(cmd: list, log: Path, dry_run: bool) -> int:
-    """Run a subprocess in the repo root with wandb offline, tee-free logging to ``log``; returns the exit code."""
+def run_cmd(cmd: list, log: Path, dry_run: bool, tracking_db: Path) -> int:
+    """Run a subprocess in the repo root, logging to MLflow in ``tracking_db`` and its output to ``log``; returns the exit code."""
     print(("[dry-run] " if dry_run else "") + " ".join(cmd) + f"  > {log}", flush=True)
     if dry_run:
         return 0
     log.parent.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "WANDB_MODE": "offline"}
+    env = {**os.environ, "MLFLOW_TRACKING_URI": f"sqlite:///{tracking_db}"}
     t0 = time.time()
     with open(log, "w") as f:
         rc = subprocess.run(cmd, cwd=ROOT, env=env, stdout=f, stderr=subprocess.STDOUT).returncode
@@ -270,13 +271,13 @@ def cmd_pretrain(args, passthrough):
             [sys.executable, "train.py"]
             + to_cli(PRESETS[args.preset])
             + to_cli(cfg)
-            + ["--seed", str(seed), "--wandb_project", WANDB_PROJECT, "--summary_json", str(summary)]
+            + ["--seed", str(seed), "--experiment", EXPERIMENT, "--summary_json", str(summary)]
             + passthrough
         )
         if not args.dry_run:
             d.mkdir(parents=True, exist_ok=True)
             (d / "config.json").write_text(json.dumps({"preset": args.preset, **cfg, "seed": seed}, indent=2))
-        jobs.append(lambda cmd=cmd, d=d: run_cmd(cmd, d / "pretrain.log", args.dry_run))
+        jobs.append(lambda cmd=cmd, d=d: run_cmd(cmd, d / "pretrain.log", args.dry_run, out / "mlflow.db"))
     rcs = run_all(jobs, args.jobs)
     failed = sum(rc != 0 for rc in rcs)
     print(f"pretrain: {len(rcs)} launched, {failed} failed")
@@ -318,7 +319,7 @@ def cmd_probe(args, passthrough):
                 [sys.executable, "finetune.py"]
                 + to_cli({**PROBE, "max_epochs": args.max_epochs})
                 + ["--model_source", "checkpoint", "--model", str(ckpt), "--seed", str(hs)]
-                + ["--wandb_project", WANDB_PROJECT, "--summary_json", str(summary)]
+                + ["--experiment", EXPERIMENT, "--summary_json", str(summary)]
                 # the encoder is frozen, so every head seed reuses one set of embeddings per run
                 + ["--embed_cache", str(d / "embeddings")]
                 + (["--random_init"] if random_init else [])
@@ -326,7 +327,9 @@ def cmd_probe(args, passthrough):
             )
             if not args.dry_run:
                 d.mkdir(parents=True, exist_ok=True)
-            jobs.append(lambda cmd=cmd, d=d, hs=hs: run_cmd(cmd, d / f"probe_h{hs}.log", args.dry_run))
+            jobs.append(
+                lambda cmd=cmd, d=d, hs=hs: run_cmd(cmd, d / f"probe_h{hs}.log", args.dry_run, out / "mlflow.db")
+            )
     if not jobs:
         print("probe: nothing to do")
         return
