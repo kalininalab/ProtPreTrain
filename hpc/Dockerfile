@@ -27,7 +27,7 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/python \
 # Exactly the locked environment (torch 2.14.0+cu130 etc.), without the project itself (it is mounted).
 COPY pyproject.toml uv.lock README.md .python-version /src/
 RUN cd /src && uv sync --frozen --no-dev --no-install-project --no-cache \
-    && rm -rf /src && chmod -R a+rX /opt/python /opt/venv \
-    && python -c "import torch, torch_geometric, lightning, mlflow, foldcomp; print('torch', torch.__version__)"
+    && rm -rf /src && chmod -R a+rX /opt/python /opt/venv
+RUN python -c "import torch, torch_geometric, lightning, mlflow, foldcomp; print('torch', torch.__version__)"
 
 WORKDIR /workspace
