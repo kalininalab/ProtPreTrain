@@ -3,7 +3,6 @@ import warnings
 from pathlib import Path
 from typing import List, Literal
 
-import ankh
 import numpy as np
 import torch
 import torch_geometric.transforms as T
@@ -13,7 +12,6 @@ from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import BaseTransform
 from tqdm import tqdm
-from transformers import T5EncoderModel, T5Tokenizer, pipeline
 
 from ..models import DenoiseModel
 from .datasets import DTIDataset, FluorescenceDataset, FoldCompDataset, HomologyDataset, StabilityDataset
@@ -204,12 +202,16 @@ class DownstreamDataModule(LightningDataModule):
         if self._uses_denoise_model:
             return self._load_denoise_model()
         elif self.feature_extract_model_source == "huggingface":
+            from transformers import pipeline
+
             return pipeline(
                 "feature-extraction",
                 model=self.feature_extract_model,
                 device=0,
             )
         elif self.feature_extract_model_source == "ankh":
+            import ankh
+
             if self.feature_extract_model == "ankh-base":
                 model, tokenizer = ankh.load_base_model()
             elif self.feature_extract_model == "ankh-large":
@@ -221,6 +223,8 @@ class DownstreamDataModule(LightningDataModule):
             Mainly based on
             https://github.com/mheinzinger/ProstT5/blob/bfc140799e3aed6d0e2f9e0e8965a8746f2dbbc2/scripts/embed.py#L20
             """
+            from transformers import T5EncoderModel, T5Tokenizer
+
             model = T5EncoderModel.from_pretrained("Rostlab/ProstT5")
             model = model.eval().half()
             vocab = T5Tokenizer.from_pretrained("Rostlab/ProstT5", do_lower_case=False)
