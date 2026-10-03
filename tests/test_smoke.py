@@ -2,7 +2,7 @@ import importlib
 import os
 from pathlib import Path
 
-os.environ.setdefault("WANDB_MODE", "disabled")
+os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
 
 import pytest
 import torch
@@ -287,3 +287,45 @@ def test_classification_step():
     assert loss.item() < 10.0
     for key in ("acc", "auc", "mcc"):
         assert torch.isfinite(out[key]).item(), key
+
+
+def test_mlflow_logging(tmp_path, monkeypatch):
+    """A short fit logs the model hyperparameters and step losses to the MLflow store."""
+    import lightning.pytorch as pl
+    import mlflow
+    from torch_geometric.loader import DataLoader
+
+    from step.utils import mlflow_logger
+
+    uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", uri)
+    logger = mlflow_logger("smoke")
+    model = make_model("seq")
+    loader = DataLoader([make_graph(n, seed) for seed, n in enumerate((20, 13, 17, 9))], batch_size=2)
+    trainer = pl.Trainer(
+        accelerator="cpu",
+        max_steps=2,
+        logger=logger,
+        log_every_n_steps=1,
+        enable_checkpointing=False,
+        enable_progress_bar=False,
+        enable_model_summary=False,
+    )
+    trainer.fit(model, loader)
+    mlflow.set_tracking_uri(uri)
+    runs = mlflow.search_runs(experiment_names=["smoke"])
+    assert len(runs) == 1
+    run = runs.iloc[0]
+    assert run["status"] == "FINISHED"
+    assert run["params.pe"] == "seq" and run["params.hidden_dim"] == "64"
+    assert run["metrics.train/loss_step"] > 0
+
+
+def test_downstream_dataset_missing_raw_files(tmp_path, monkeypatch):
+    """Downstream datasets are never downloaded; a missing raw file gives an actionable error."""
+    from step.data.datasets import FluorescenceDataset
+
+    monkeypatch.setattr(FluorescenceDataset, "root", str(tmp_path / "fluorescence"))
+    with pytest.raises(FileNotFoundError, match="fluorescence_train.json") as err:
+        FluorescenceDataset("train")
+    assert "uvx wandb artifact get rindti/fluorescence/fluorescence_dataset:latest" in str(err.value)

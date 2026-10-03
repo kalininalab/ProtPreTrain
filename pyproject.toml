@@ -51,7 +51,6 @@ dependencies = [
     "torchmetrics==1.9.0",
     "tqdm==4.70.1",
     "transformers==4.57.6",
-    "wandb==0.30.0",
 ]
 
 [project.urls]
@@ -88,8 +87,6 @@ target-version = "py311"
 line-length = 119
 fix = true
 lint.select = ["E","F","W","B"]
-# a local wandb/ run directory otherwise makes the import sorter treat wandb as first-party
-lint.isort.known-third-party = ["wandb"]
 lint.isort.known-first-party = ["step"]
 lint.ignore = ["E501", "F841", "F811", "F401"]
 # train.py parses args before importing torch so --help stays fast

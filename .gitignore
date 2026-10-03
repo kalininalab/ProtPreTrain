@@ -8,6 +8,10 @@ __*__/
 *.tsv
 *.csv
 wandb/
+mlflow.db
+mlflow.db.lock
+mlruns/
+mlartifacts/
 data/*
 *.ipynb
 logs/

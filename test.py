@@ -4,7 +4,6 @@ import sys
 import timeit
 
 import torch_geometric.transforms as T
-import wandb
 
 from step.data import FoldCompDataset, RandomWalkPE
 
