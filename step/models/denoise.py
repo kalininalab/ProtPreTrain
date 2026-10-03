@@ -111,10 +111,13 @@ class DenoiseModel(LightningModule):
             pe_dim = 0
         if invariant:
             # Raw coordinates are frame-dependent, so the invariant model sees geometry only through edge lengths
-            assert edge_dim > 0, "invariant model needs edge distance features (edge_dim > 0)"
+            if not edge_dim > 0:
+                raise ValueError("invariant model needs edge distance features (edge_dim > 0)")
             pos_dim = 0
-        assert pe_dim % 2 == 0, "pe_dim must be even"
-        assert hidden_dim > (pos_dim + pe_dim)
+        if pe_dim % 2 != 0:
+            raise ValueError("pe_dim must be even")
+        if not hidden_dim > (pos_dim + pe_dim):
+            raise ValueError("hidden_dim must exceed pos_dim + pe_dim")
         self.save_hyperparameters()
         self.lr = lr
         self.alpha = alpha
