@@ -1,3 +1,86 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "step"
+description = "Protein structure pretraining"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11,<3.12"
+authors = [{ name = "Ilya Senatorov", email = "ilya.senatorov@helmholtz-hips.de" }]
+keywords = [
+    "deep-learning",
+    "pytorch",
+    "foundation",
+    "self-supervised",
+    "residue-interaction-network",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Development Status :: 3 - Alpha",
+]
+dynamic = ["version"]
+dependencies = [
+    # Verified stack: Python 3.11, torch 2.14.0+cu126 (2026-09-17)
+    "ankh==1.10.0",
+    "beartype==0.22.9",
+    "foldcomp==1.0.0",
+    "h5py==3.16.0",
+    "joblib==1.6.0",
+    "Levenshtein==0.27.5",
+    "matplotlib==3.11.2",
+    "numpy==2.4.6",
+    "pandas==3.0.5",
+    "plotly==7.1.0",
+    "pyg-lib==0.9.0",
+    "PyYAML==6.0.3",
+    "lightning==2.6.6",
+    "rdkit==2026.3.6",
+    "rich==14.3.4",
+    "scikit-learn==1.9.1",
+    "scipy==1.17.1",
+    "sentencepiece==0.1.99",
+    "torch==2.14.0",
+    "torch-geometric==2.8.0.post1",
+    "torchmetrics==1.9.0",
+    "tqdm==4.70.1",
+    "transformers==4.57.6",
+    "wandb==0.30.0",
+]
+
+[project.urls]
+Repository = "https://github.com/ilsenatorov/ProtPreTrain"
+
+[tool.setuptools]
+# Same package discovery as the former setup.py find_packages()
+[tool.setuptools.packages.find]
+include = ["step*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "step.version.version" }
+
+# torch-geometric 2.8 migrated neighbor ops from torch-cluster/-scatter/-sparse
+# to pyg-lib; these are the prebuilt +pt214cu126 wheels (no PyPI distribution).
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+pyg-lib = { url = "https://data.pyg.org/whl/torch-2.14.0%2Bcu126/pyg_lib-0.9.0%2Bpt214cu126-cp310-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl" }
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.16.8",
+]
+
+
 [tool.black]
 line-length = 119
 target-version = ['py36', 'py37', 'py38']
