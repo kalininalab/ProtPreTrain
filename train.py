@@ -63,7 +63,7 @@ parser.add_argument("--warmup_frac", type=float, default=0.05, help="Fraction of
 parser.add_argument("--val_size", type=int, default=0, help="Structures held out for validation losses")
 parser.add_argument("--num_nodes", type=int, default=1, help="Computing nodes")
 parser.add_argument("--num_workers", type=int, default=16)
-parser.add_argument("--wandb_project", type=str, default="step")
+parser.add_argument("--experiment", type=str, default="step", help="MLflow experiment name")
 parser.add_argument("--summary_json", type=str, default=None, help="Write final metrics and checkpoint path here")
 
 args = parser.parse_args()
@@ -80,7 +80,7 @@ import torch_geometric as pyg
 from step.data import FoldCompDataModule, MaskType, MaskTypeAnkh, MaskTypeBERT, PosNoise
 from step.data.transforms import SequenceOnly, graph_transforms
 from step.models import DenoiseModel
-from step.utils import WandbArtifactModelCheckpoint
+from step.utils import tracking_uri
 
 # Explicitly specify the process group backend if you choose to
 
@@ -88,12 +88,9 @@ torch.set_float32_matmul_precision("medium")
 torch.multiprocessing.set_sharing_strategy("file_system")
 pl.seed_everything(args.seed)
 config = vars(args)
-logger = pl.loggers.WandbLogger(
-    project=args.wandb_project,
-    entity="rindti",
-    config=config,
-    log_model=False,
-)
+# Hyperparameters reach MLflow through model.hparams (DenoiseModel saves every CLI arg via **kwargs); logging
+# vars(args) as well would conflict wherever the model adjusts a value, e.g. pe_dim=0 for --pe none
+logger = pl.loggers.MLFlowLogger(experiment_name=args.experiment, tracking_uri=tracking_uri())
 masktype_transform = {"normal": MaskType, "ankh": MaskTypeAnkh, "bert": MaskTypeBERT}
 
 # Graph + PE are built after PosNoise by default, so connectivity carries no information about the noise target.
@@ -122,13 +119,11 @@ datamodule = FoldCompDataModule(
     val_size=args.val_size,
 )
 
-run = logger.experiment
 model = DenoiseModel(**config)
-checkpoint = WandbArtifactModelCheckpoint(
-    wandb_run=run,
+checkpoint = pl.callbacks.ModelCheckpoint(
     monitor="train/loss",
     mode="min",
-    dirpath=f"checkpoints/{run.id}",
+    dirpath=f"checkpoints/{logger.run_id}",
     save_on_train_epoch_end=True,
 )
 trainer = pl.Trainer(
@@ -156,16 +151,14 @@ trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume)
 train_time = time.time() - start
 # Pretraining compute for reporting; params are counted after fit because the model has lazy layers
 if trainer.is_global_zero:
-    run.summary["num_params"] = sum(p.numel() for p in model.parameters())
-    run.summary["world_size"] = trainer.world_size
-    run.summary["train_time_s"] = train_time
+    compute = {
+        "num_params": sum(p.numel() for p in model.parameters()),
+        "world_size": trainer.world_size,
+        "train_time_s": train_time,
+    }
+    logger.log_metrics(compute)
     if args.summary_json:
         summary = {k: v.item() for k, v in trainer.callback_metrics.items()}
-        summary.update(
-            train_time_s=train_time,
-            num_params=run.summary["num_params"],
-            ckpt_path=checkpoint.best_model_path,
-            run_id=run.id,
-        )
+        summary.update(compute, ckpt_path=checkpoint.best_model_path, run_id=logger.run_id)
         with open(args.summary_json, "w") as f:
             json.dump(summary, f, indent=2)

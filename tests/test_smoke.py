@@ -96,7 +96,7 @@ def test_import_everything():
         "step.models.downstream",
         "step.models.utils",
         "step.utils",
-        "step.utils.checkpoint",
+        "step.utils.tracking",
         "step.utils.cli",
         "step.utils.optim",
     ]:
