@@ -3,6 +3,56 @@
 All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — 2026-10-03 — `dev` branch ported in
+
+`dev` and this branch were independent rewrites of `69960b4`. The useful parts of
+`dev` were ported one commit at a time (each commit names its `dev` source);
+nothing here changes the training objective or invalidates checkpoints.
+
+### ⚠️ Breaking / behaviour-changing
+
+- **Environment is now uv-managed**: `pyproject.toml` + `uv.lock` (Python 3.11,
+  torch 2.14+cu126, PyG 2.8, lightning 2.6.6, wandb 0.30, foldcomp 1.0). `setup.py`
+  and `requirements.txt` are gone; `requirements-asrun.txt` stays as the record of
+  the environment that produced the original results. Install with `uv sync`.
+- **`lightning.pytorch` namespace** replaces `pytorch_lightning`. Checkpoints saved
+  under `pytorch_lightning` load unchanged (verified).
+- **`--masktype ankh` masking now uses the torch RNG** (deterministic under a seed)
+  and always fills its quota. Previously, graphs with fewer distinct residue types
+  than the quota (with quota < 20) were under-masked.
+- `DenoiseModel` constructor checks raise `ValueError` instead of `AssertionError`.
+
+### Added
+
+- `tests/test_smoke.py` (`python -m pytest`, ~10 s on CPU): forward / predict /
+  training steps for the rw, seq and invariant configs, rotation invariance of the
+  invariant model, masking transforms (boolean masks, full-length `orig_x`, after
+  batching), and a seeded snapshot (`tests/snapshots/baseline.pt`).
+- uv-based `Dockerfile`.
+
+### Fixed
+
+- `train.py` crashed under wandb 0.30 (`wandb.Settings(start_method=...)` removed).
+- `DenoiseModel.forward` no longer overwrites the input batch's `x` with embeddings.
+- ProstT5 embedding only skips CUDA OOM (with a warning) instead of every `RuntimeError`.
+- `RandomWalkPE` no longer allocates an N×N zero matrix.
+- `FoldCompDataModule` no longer uses mutable list defaults.
+
+### Changed
+
+- ruff + ruff-format replace black, isort and flake8 (interrogate stays).
+- `ankh`/`transformers` are imported only when those baselines are used.
+- Removed dead code: `ToCuda`, `ToCpu`, `MaskTypeWeighted`, figure logging
+  (`step/utils/vis.py`), `step/utils/math.py`, unused `cli.py` and data helpers.
+
+### Not ported from `dev`
+
+- PyG's `DynamicBatchSampler` (this branch's DDP-safe sampler supersedes it).
+- `SequentialLR` scheduler (this branch's `--scheduler cosine|legacy` keeps old
+  checkpoints loadable).
+- `dev`'s `MaskTypeAnkh`/`MaskTypeBERT` index masks and subset `orig_x` (the batching
+  bug fixed on this branch).
+
 ## [Unreleased] — 2026-09-29
 
 Pre-publication pass on experimental validity and portability. **Every pretrained

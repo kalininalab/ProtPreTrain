@@ -22,9 +22,13 @@ scripts assume an authenticated `wandb` session.
 ## Commands
 
 ```bash
+# Environment: uv-managed (Python 3.11, torch 2.14+cu126, pinned in uv.lock); creates .venv/
+uv sync
+
 # Pretraining (uses every GPU visible to the process)
 python train.py --dataset afdb_rep_v4 --hidden_dim 512 --num_layers 12 --masktype normal --maskfrac 0.15
-python train.py --subset 10000 --hidden_dim 16 --num_layers 4 --max_epochs 1   # small smoke run
+# Small end-to-end smoke run (~30 s on one GPU): m_jannaschii is the smallest foldcomp DB (8 MB, 1773 structures)
+WANDB_MODE=offline python train.py --dataset m_jannaschii --subset 256 --val_size 32 --hidden_dim 192 --num_layers 2 --max_epochs 1
 
 # Downstream eval: freeze an encoder, embed the dataset, train an MLP head
 python finetune.py --dataset fluorescence --model_source wandb --model rindti/step/model-<runid>:latest
@@ -38,15 +42,15 @@ python scripts/aggregate_results.py --out results.csv
 # rotation invariance, masking transforms, and a seeded loss snapshot
 python -m pytest
 
-# Lint / format (pre-commit is the only enforced check; black+isort at line-length 119)
+# Lint / format (pre-commit: ruff + ruff-format at line-length 119, plus interrogate)
 pre-commit install
 pre-commit run --all-files
 ```
 
 Tests live in `tests/test_smoke.py`; `test.py` and `test*.ipynb` are scratch/benchmark files, not tests.
 `tests/snapshots/baseline.pt` pins seeded training losses/outputs for each model config — a deliberate change to
-the model or loss means deleting it and rerunning `pytest` to regenerate. `interrogate` in pre-commit rejects commits below 80% docstring coverage, so
-new public functions/classes need a docstring.
+the model or loss means deleting it and rerunning `pytest` to regenerate. `interrogate` in pre-commit rejects
+commits below 80% docstring coverage, so new public functions/classes need a docstring.
 
 ## Architecture
 
