@@ -1,7 +1,7 @@
 import os
 import warnings
 from pathlib import Path
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 import numpy as np
 import torch
@@ -25,8 +25,8 @@ class FoldCompDataModule(LightningDataModule):
     def __init__(
         self,
         db_name: str = "afdb_rep_v4",
-        transforms: List[BaseTransform] = [],
-        pre_transforms: List[BaseTransform] = [],
+        transforms: Optional[List[BaseTransform]] = None,
+        pre_transforms: Optional[List[BaseTransform]] = None,
         batch_size: int = 128,
         num_workers: int = 1,
         shuffle: bool = True,
@@ -38,8 +38,8 @@ class FoldCompDataModule(LightningDataModule):
     ):
         super().__init__()
         self.db_name = db_name
-        self.transforms = transforms
-        self.pre_transforms = pre_transforms
+        self.transforms = list(transforms or [])
+        self.pre_transforms = list(pre_transforms or [])
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.shuffle = shuffle

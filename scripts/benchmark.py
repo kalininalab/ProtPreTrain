@@ -221,7 +221,7 @@ def cmd_loader(args, _passthrough):
             times.append((time.perf_counter() - t0) * 1e3)
         times = np.array(times)
         per_bin = {}
-        for lo, hi in zip(bins[:-1], bins[1:]):
+        for lo, hi in zip(bins[:-1], bins[1:], strict=True):
             sel = (lens >= lo) & (lens < hi)
             if sel.any():
                 per_bin[f"{lo}-{hi - 1}"] = {"n": int(sel.sum()), "ms": float(times[sel].mean())}

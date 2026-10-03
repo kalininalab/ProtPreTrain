@@ -90,6 +90,8 @@ lint.select = ["E","F","W","B"]
 lint.isort.known-third-party = ["wandb"]
 lint.isort.known-first-party = ["step"]
 lint.ignore = ["E501", "F841", "F811", "F401"]
+# train.py parses args before importing torch so --help stays fast
+lint.per-file-ignores = { "train.py" = ["E402"] }
 
 
 [tool.interrogate]

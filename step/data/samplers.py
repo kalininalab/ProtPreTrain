@@ -34,7 +34,7 @@ class DynamicBatchSampler(Sampler[List[int]]):
         n = len(self.lengths)
         order = np.random.default_rng(self.seed + self.epoch).permutation(n) if self.shuffle else np.arange(n)
         batches, batch, num = [], [], 0
-        for i, size in zip(order.tolist(), self.lengths[order].tolist()):
+        for i, size in zip(order.tolist(), self.lengths[order].tolist(), strict=True):
             if batch and num + size > self.max_num:
                 batches.append(batch)
                 batch, num = [], 0
