@@ -12,6 +12,10 @@ Every run lives in ``<out>/<config>_s<seed>/`` (``pretrain.json``, ``pretrain.lo
 interruption. Subprocesses log to MLflow in ``<out>/mlflow.db`` (experiment ``step-bench``), separate from the
 main tracking store.
 
+On the conduit cluster, ``--condor FILE`` (pretrain and probe) writes an HTCondor queue file for hpc/gpu.sub instead
+of running anything: one ``<mlflow store>, <command>`` line per job, each job with its own MLflow store. Generate the
+probe file once the pretraining jobs have finished (it reads their ``pretrain.json``). See hpc/README.md.
+
 Unknown arguments are passed through verbatim to train.py / finetune.py after the preset/config arguments (argparse
 keeps the last occurrence, so they override), e.g. ``pretrain --configs legacy -- --max_epochs 2 --num_workers 4``.
 ``--preset scale`` swaps the common arguments for the cluster-sized setup (AFDB subset, bigger model).
@@ -144,6 +148,15 @@ def run_cmd(cmd: list, log: Path, dry_run: bool, tracking_db: Path) -> int:
     return rc
 
 
+def write_condor(path: str, lines: list) -> None:
+    """Write ``<store>, <command>`` lines for hpc/gpu.sub; condor splits on commas, so commands must not contain any."""
+    for _store, cmd in lines:
+        if "," in " ".join(cmd):
+            sys.exit(f"command contains a comma, which condor would split on: {' '.join(cmd)}")
+    Path(path).write_text("".join(f"{store}, {' '.join(cmd)}\n" for store, cmd in lines))
+    print(f"wrote {len(lines)} jobs to {path}; submit with: condor_submit -a 'runfile={path}' hpc/gpu.sub")
+
+
 def run_all(jobs: list, n_parallel: int) -> list:
     """Run a list of zero-argument callables, optionally in parallel threads (each launches a subprocess)."""
     if n_parallel <= 1:
@@ -260,7 +273,8 @@ def cmd_loader(args, _passthrough):
 def cmd_pretrain(args, passthrough):
     """Run every selected config x seed through train.py, skipping runs that already wrote their summary json."""
     out = Path(args.out).resolve()
-    jobs = []
+    python = "python" if args.condor else sys.executable  # the image's python on the cluster
+    jobs, condor = [], []
     for cfg, seed in itertools.product(select_configs(args.configs), args.seeds):
         d = run_dir(out, cfg["name"], seed)
         summary = d / "pretrain.json"
@@ -268,16 +282,22 @@ def cmd_pretrain(args, passthrough):
             print(f"skip {d.name}: {summary.name} exists")
             continue
         cmd = (
-            [sys.executable, "train.py"]
+            [python, "train.py"]
             + to_cli(PRESETS[args.preset])
             + to_cli(cfg)
             + ["--seed", str(seed), "--experiment", EXPERIMENT, "--summary_json", str(summary)]
+            # restart-safe: an interrupted run continues from its last.ckpt when rerun
+            + ["--ckpt_dir", str(d / "checkpoints"), "--resume", "auto"]
             + passthrough
         )
         if not args.dry_run:
             d.mkdir(parents=True, exist_ok=True)
             (d / "config.json").write_text(json.dumps({"preset": args.preset, **cfg, "seed": seed}, indent=2))
+        condor.append((d / "pretrain.mlflow.db", cmd))
         jobs.append(lambda cmd=cmd, d=d: run_cmd(cmd, d / "pretrain.log", args.dry_run, out / "mlflow.db"))
+    if args.condor:
+        write_condor(args.condor, condor)
+        return
     rcs = run_all(jobs, args.jobs)
     failed = sum(rc != 0 for rc in rcs)
     print(f"pretrain: {len(rcs)} launched, {failed} failed")
@@ -304,7 +324,8 @@ def glob_escape(s: str) -> str:
 def cmd_probe(args, passthrough):
     """Homology probe (frozen encoder + MLP head) for each finished pretraining run and the random-init control."""
     out = Path(args.out).resolve()
-    jobs = []
+    python = "python" if args.condor else sys.executable
+    jobs, condor = [], []
     for d, pretrain_json, random_init in _probe_targets(out, select_configs(args.configs)):
         ckpt = json.loads(pretrain_json.read_text()).get("ckpt_path")
         if not ckpt or not Path(ckpt).exists():
@@ -316,7 +337,7 @@ def cmd_probe(args, passthrough):
                 print(f"skip {d.name} head seed {hs}: exists")
                 continue
             cmd = (
-                [sys.executable, "finetune.py"]
+                [python, "finetune.py"]
                 + to_cli({**PROBE, "max_epochs": args.max_epochs})
                 + ["--model_source", "checkpoint", "--model", str(ckpt), "--seed", str(hs)]
                 + ["--experiment", EXPERIMENT, "--summary_json", str(summary)]
@@ -327,11 +348,17 @@ def cmd_probe(args, passthrough):
             )
             if not args.dry_run:
                 d.mkdir(parents=True, exist_ok=True)
+            condor.append((d / f"probe_h{hs}.mlflow.db", cmd))
             jobs.append(
                 lambda cmd=cmd, d=d, hs=hs: run_cmd(cmd, d / f"probe_h{hs}.log", args.dry_run, out / "mlflow.db")
             )
     if not jobs:
         print("probe: nothing to do")
+        return
+    if args.condor:
+        # Head seeds of one run share --embed_cache and data/homology; finetune.py file-locks both, so they can all
+        # be queued at once (the first embeds, the rest wait and load)
+        write_condor(args.condor, condor)
         return
     # The first probe processes data/homology for this graph setup; run it alone so parallel jobs don't race on it
     rcs = [jobs[0]()] + run_all(jobs[1:], args.jobs)
@@ -425,6 +452,9 @@ def main():
         p.add_argument("--configs", nargs="*", default=[], help="Subset of config names (default: all)")
         p.add_argument("--jobs", type=int, default=1, help="Concurrent subprocesses")
         p.add_argument("--dry_run", action="store_true", help="Print commands without running them")
+        p.add_argument(
+            "--condor", default=None, help="Write an HTCondor queue file for hpc/gpu.sub instead of running"
+        )
     sub.choices["pretrain"].add_argument("--preset", choices=sorted(PRESETS), default="local")
     sub.choices["pretrain"].add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
     sub.choices["probe"].add_argument("--head_seeds", type=int, nargs="+", default=[0, 1, 2])
