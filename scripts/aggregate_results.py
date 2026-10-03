@@ -1,11 +1,15 @@
 """Aggregate downstream test metrics over seeds into mean ± 95% CI, and pretraining compute per model.
 
-Reads finished runs from the MLflow tracking store ($MLFLOW_TRACKING_URI, default sqlite:///mlflow.db).
+Reads finished runs from the MLflow tracking store ($MLFLOW_TRACKING_URI, default sqlite:///mlflow.db), or from
+many per-job SQLite stores at once (cluster jobs each write their own, see hpc/README.md):
 
 python scripts/aggregate_results.py --out results.csv
+python scripts/aggregate_results.py --db_glob '/home/s8ilsena/step/runs/**/*.db' --out results.csv
 """
 
 import argparse
+import glob
+import os
 
 import mlflow
 import pandas as pd
@@ -19,19 +23,34 @@ PARAM_DEFAULTS = {"ablation": "none", "ablation_maskfrac": "1.0", "random_init":
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tracking_uri", default=None, help="Defaults to $MLFLOW_TRACKING_URI or sqlite:///mlflow.db")
+parser.add_argument("--db_glob", default=None, help="Read every SQLite store matching this (recursive) glob instead")
 parser.add_argument("--experiments", nargs="+", default=["fluorescence", "stability", "homology", "dti"])
 parser.add_argument("--pretrain_experiment", default="step")
 parser.add_argument("--out", default=None, help="Optional CSV output path")
 args = parser.parse_args()
 
-mlflow.set_tracking_uri(args.tracking_uri or tracking_uri())
+if args.db_glob:
+    STORES = [f"sqlite:///{os.path.abspath(p)}" for p in sorted(glob.glob(args.db_glob, recursive=True))]
+    if not STORES:
+        raise SystemExit(f"No stores match {args.db_glob}")
+else:
+    STORES = [args.tracking_uri or tracking_uri()]
 
 
 def finished_runs(experiments: list) -> pd.DataFrame:
-    """Finished runs of the given experiments, one row each (params.* and metrics.* columns)."""
-    return mlflow.search_runs(
-        experiment_names=experiments, filter_string="attributes.status = 'FINISHED'", output_format="pandas"
-    )
+    """Finished runs of the given experiments across all stores, one row each (params.* and metrics.* columns)."""
+    frames = []
+    for uri in STORES:
+        client = mlflow.MlflowClient(uri)
+        ids = [e.experiment_id for name in experiments if (e := client.get_experiment_by_name(name)) is not None]
+        if ids:
+            mlflow.set_tracking_uri(uri)
+            frames.append(
+                mlflow.search_runs(
+                    experiment_ids=ids, filter_string="attributes.status = 'FINISHED'", output_format="pandas"
+                )
+            )
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
 def metric(runs: pd.DataFrame, name: str) -> pd.Series:
