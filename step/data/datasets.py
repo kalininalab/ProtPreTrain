@@ -32,7 +32,6 @@ class FoldCompDataset(Dataset):
         num_workers: int = 16,
         chunk_size: int = 4096,
     ) -> None:
-        torch.set_num_threads(1)
         self.db_name = db_name
         self.pre_transform = pre_transform
         self.num_workers = num_workers
@@ -64,6 +63,8 @@ class FoldCompDataset(Dataset):
 
     def process_chunk(self, start_num: int, end_num: int):
         """Process a single chunk of the database. This is done in parallel."""
+        # One thread per joblib worker. Not set in __init__, since that would also pin the training process
+        torch.set_num_threads(1)
         data_dict = {}
         with foldcomp.open(self.raw_paths[0]) as db:
             for idx in range(start_num, end_num):

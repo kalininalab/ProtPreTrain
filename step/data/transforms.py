@@ -2,9 +2,21 @@ import random
 from typing import Any
 
 import torch
+import torch_geometric.transforms as T
 from torch_geometric.data import Data
 from torch_geometric.transforms import BaseTransform
 from torch_geometric.utils import to_dense_adj
+
+
+def graph_transforms(radius: float, pe: str = "rw", walk_length: int = 20, cuda: bool = False) -> list:
+    """Transforms that build the residue graph from `pos`: radius edges, plus RandomWalkPE when pe == "rw".
+
+    The "seq" and "none" encodings are computed inside the model, so they need no transform.
+    """
+    transforms = [T.RadiusGraph(radius), T.ToUndirected()]
+    if pe == "rw":
+        transforms.append(RandomWalkPE(walk_length, attr_name="pe", cuda=cuda))
+    return transforms
 
 
 class RandomWalkPE(BaseTransform):

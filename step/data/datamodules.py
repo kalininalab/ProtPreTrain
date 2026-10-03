@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import List, Literal
 
@@ -16,7 +17,7 @@ from transformers import T5EncoderModel, T5Tokenizer, pipeline
 from ..models import DenoiseModel
 from .datasets import DTIDataset, FluorescenceDataset, FoldCompDataset, HomologyDataset, StabilityDataset
 from .samplers import DynamicBatchSampler
-from .transforms import RandomWalkPE, SequenceOnly, StructureOnly
+from .transforms import SequenceOnly, StructureOnly, graph_transforms
 
 
 class FoldCompDataModule(LightningDataModule):
@@ -34,6 +35,7 @@ class FoldCompDataModule(LightningDataModule):
         max_num_nodes: int = 0,
         subset: int = None,
         max_length: int = None,
+        val_size: int = 0,
     ):
         super().__init__()
         self.db_name = db_name
@@ -46,6 +48,8 @@ class FoldCompDataModule(LightningDataModule):
         self.max_num_nodes = max_num_nodes
         self.subset = subset
         self.max_length = max_length
+        self.val_size = val_size
+        self.val = None
 
     def _get_dataloader(self, ds: Dataset, shuffle: bool = False) -> DataLoader:
         if self.batch_sampling:
@@ -56,6 +60,12 @@ class FoldCompDataModule(LightningDataModule):
     def train_dataloader(self):
         """Train dataloader."""
         return self._get_dataloader(self.train, shuffle=True)
+
+    def val_dataloader(self):
+        """Held-out structures, in fixed-size batches (only when val_size > 0)."""
+        if self.val is None:
+            return []
+        return DataLoader(self.val, **self._dl_kwargs(shuffle=False))
 
     def _dataset(self) -> FoldCompDataset:
         return FoldCompDataset(
@@ -81,7 +91,12 @@ class FoldCompDataModule(LightningDataModule):
             if self.max_length:
                 keep = np.flatnonzero(self.lengths <= self.max_length)
         keep = keep[: self.subset]
-        self.train = self.train.index_select(keep.tolist())
+        # The val split is a fixed random draw, independent of the training seed
+        keep = np.random.default_rng(0).permutation(keep) if self.val_size else keep
+        val, keep = keep[: self.val_size], keep[self.val_size :]
+        full = self.train
+        self.train = full.index_select(keep.tolist())
+        self.val = full.index_select(val.tolist()) if self.val_size else None
         if self.batch_sampling:
             self.lengths = self.lengths[keep]
 
@@ -109,6 +124,7 @@ class DownstreamDataModule(LightningDataModule):
         ablation: Literal["none", "sequence", "structure"] = "none",
         ablation_maskfrac: float = 1.0,
         random_init: bool = False,
+        embed_cache: str = None,
         radius: int = 10,
         walk_length: int = 20,
         **kwargs,
@@ -122,28 +138,31 @@ class DownstreamDataModule(LightningDataModule):
         self.ablation = ablation
         self.ablation_maskfrac = ablation_maskfrac
         self.random_init = random_init
+        self.embed_cache = embed_cache
         self.radius = radius
         self.walk_length = walk_length
         self.kwargs = kwargs
-        if ablation == "sequence" and feature_extract_model_source == "wandb":
+        if ablation == "sequence" and feature_extract_model_source in ("wandb", "checkpoint"):
             # Sequence ablation changes the pre_transform, so it needs its own processed files
             self.kwargs["processed_name"] = "processed_sequence"
 
-    def _optional_add_transform(self):
-        if self.feature_extract_model_source == "wandb":
+    @property
+    def _uses_denoise_model(self) -> bool:
+        return self.feature_extract_model_source in ("wandb", "checkpoint")
+
+    def _optional_add_transform(self, hparams: dict):
+        if self._uses_denoise_model:
             # SequenceOnly goes first, so that edges and PE are built from the straight-line positions
             pre_transform = [SequenceOnly()] if self.ablation == "sequence" else []
-            pre_transform = T.Compose(
-                pre_transform
-                + [
-                    T.Center(),
-                    T.NormalizeRotation(),
-                    T.RadiusGraph(self.radius),
-                    T.ToUndirected(),
-                    RandomWalkPE(self.walk_length, "pe", cuda=torch.cuda.is_available()),
-                ]
-            )
+            pre_transform = T.Compose(pre_transform + [T.Center(), T.NormalizeRotation()])
+            # The graph is built at embedding time from the encoder's own hyperparameters, so processed files
+            # don't go stale when radius or PE type change between checkpoints
             transform = [StructureOnly(self.ablation_maskfrac)] if self.ablation == "structure" else []
+            transform += graph_transforms(
+                hparams.get("radius", self.radius),
+                hparams.get("pe", "rw"),
+                hparams.get("walk_length", self.walk_length),
+            )
             transform = T.Compose(transform)
         else:
             pre_transform = None
@@ -165,12 +184,14 @@ class DownstreamDataModule(LightningDataModule):
         """Test dataloader."""
         return self._get_dataloader(self.test)
 
-    def _load_wandb_model(self):
-        artifact = wandb.run.use_artifact(self.feature_extract_model, type="model")
-        artifact_dir = artifact.download()
-        p = Path(artifact_dir)
-        p = [x for x in p.glob("*.ckpt")][0]
-        model = DenoiseModel.load_from_checkpoint(p)
+    def _load_denoise_model(self):
+        if self.feature_extract_model_source == "checkpoint":
+            p = self.feature_extract_model
+        else:
+            artifact = wandb.run.use_artifact(self.feature_extract_model, type="model")
+            artifact_dir = artifact.download()
+            p = [x for x in Path(artifact_dir).glob("*.ckpt")][0]
+        model = DenoiseModel.load_from_checkpoint(p, map_location="cpu")
         if self.random_init:
             # No-pretraining control: same architecture and hyperparameters, fresh weights
             model = DenoiseModel(**model.hparams)
@@ -179,8 +200,8 @@ class DownstreamDataModule(LightningDataModule):
 
     def load_pretrained_model(self):
         """Load the pretrained model."""
-        if self.feature_extract_model_source == "wandb":
-            return self._load_wandb_model()
+        if self._uses_denoise_model:
+            return self._load_denoise_model()
         elif self.feature_extract_model_source == "huggingface":
             return pipeline(
                 "feature-extraction",
@@ -206,9 +227,14 @@ class DownstreamDataModule(LightningDataModule):
         else:
             raise ValueError(f"Unknown feature extract model source {self.feature_extract_model_source}")
 
+    def _load_model_and_transforms(self):
+        """Load our encoder (if used) first, since its hyperparameters decide how the graphs are built."""
+        self.model = self.load_pretrained_model() if self._uses_denoise_model else None
+        return self._optional_add_transform(dict(self.model.hparams) if self.model else {})
+
     def setup(self, stage: str = None):
         """Load the individual datasets."""
-        transform, pre_transform = self._optional_add_transform()
+        transform, pre_transform = self._load_model_and_transforms()
         splits = []
         if stage == "fit" or stage is None:
             splits.append("train")
@@ -236,9 +262,26 @@ class DownstreamDataModule(LightningDataModule):
         self.embed_splits(splits)
 
     def embed_splits(self, splits: List[str]):
-        """Embed the splits."""
-        if self.feature_extract_model_source == "wandb":
-            self._embed_with_wandb(splits)
+        """Embed the splits, reusing per-split embeddings from `embed_cache` when present."""
+        cached = {}
+        if self.embed_cache:
+            os.makedirs(self.embed_cache, exist_ok=True)
+            for split in splits:
+                path = os.path.join(self.embed_cache, f"{split}.pt")
+                if os.path.exists(path):
+                    cached[split] = torch.load(path, weights_only=False)
+        todo = [split for split in splits if split not in cached]
+        if todo:
+            self._embed(todo)
+            if self.embed_cache:
+                for split in todo:
+                    torch.save(getattr(self, split), os.path.join(self.embed_cache, f"{split}.pt"))
+        for split, data_list in cached.items():
+            self._assign_data(split, data_list)
+
+    def _embed(self, splits: List[str]):
+        if self._uses_denoise_model:
+            self._embed_with_denoise_model(splits)
         elif self.feature_extract_model_source == "huggingface":
             self._embed_with_huggingface(splits)
         elif self.feature_extract_model_source == "ankh":
@@ -263,17 +306,17 @@ class DownstreamDataModule(LightningDataModule):
         elif split == "test":
             self.test = data_list
 
-    def _embed_with_wandb(self, splits: List[str]) -> List[Data]:
+    def _embed_with_denoise_model(self, splits: List[str]) -> List[Data]:
         trainer = Trainer(
             callbacks=[],
             logger=False,
             accelerator="auto",
-            precision="bf16-mixed",
+            # CPUs without native bf16 run bf16 autocast several times slower than fp32
+            precision="bf16-mixed" if torch.cuda.is_available() else "32-true",
         )
-        model = self.load_pretrained_model()
         for split in splits:
             dl = self._get_dataloader(getattr(self, split))
-            result = trainer.predict(model, dataloaders=dl)
+            result = trainer.predict(self.model, dataloaders=dl)
             data_list = []
             for batch in result:
                 for i in range(len(batch)):
@@ -372,7 +415,7 @@ class HomologyDataModule(DownstreamDataModule):
 
     def setup(self, stage: str = None):
         """Load the individual datasets."""
-        transform, pre_transform = self._optional_add_transform()
+        transform, pre_transform = self._load_model_and_transforms()
         splits = []
         if stage == "fit" or stage is None:
             splits.append("train")

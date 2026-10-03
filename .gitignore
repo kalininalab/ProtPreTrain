@@ -14,3 +14,5 @@ data/*
 logs/
 artifacts/
 checkpoints/
+graphify-out/
+bench/

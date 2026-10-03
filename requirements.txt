@@ -29,6 +29,7 @@ lightning==2.6.5
 pytorch-lightning==2.6.5
 torchmetrics==1.9.0
 wandb==0.28.2
+rich==15.0.0             # RichProgressBar in train.py / finetune.py; was undeclared
 
 # --- data pipeline ------------------------------------------------------
 foldcomp==0.0.7          # NOT upgraded to 1.0.0: major bump, untested here

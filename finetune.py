@@ -1,4 +1,5 @@
 import argparse
+import json
 import warnings
 
 import pytorch_lightning as pl
@@ -18,8 +19,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability", "homology", "dti"]
 )
-parser.add_argument("--model_source", type=str, choices=["wandb", "huggingface", "ankh", "prostt5"])
-parser.add_argument("--model", type=str)
+parser.add_argument("--model_source", type=str, choices=["wandb", "checkpoint", "huggingface", "ankh", "prostt5"])
+parser.add_argument("--model", type=str, help="wandb artifact, local .ckpt path (checkpoint), or model name")
 parser.add_argument("--hidden_dim", type=int, default=512)
 parser.add_argument("--dropout", type=float, default=0.2)
 parser.add_argument("--batch_size", type=int, default=256)
@@ -32,12 +33,24 @@ parser.add_argument(
     "--random_init", action="store_true", help="No-pretraining control: reinitialise the wandb model's weights"
 )
 parser.add_argument("--seed", type=int, default=42)
+parser.add_argument("--max_epochs", type=int, default=10000)
+parser.add_argument("--wandb_project", type=str, default=None, help="Defaults to the dataset name")
+parser.add_argument(
+    "--embed_cache",
+    type=str,
+    default=None,
+    help="Directory for per-split embeddings; reused if present, so head seeds embed only once per encoder",
+)
+parser.add_argument("--summary_json", type=str, default=None, help="Write the test metrics here as JSON")
 config = parser.parse_args()
 pl.seed_everything(config.seed)
 
-logger = pl.loggers.WandbLogger(project=config.dataset, log_model=True, dir="wandb", config=config, entity="rindti")
+logger = pl.loggers.WandbLogger(
+    project=config.wandb_project or config.dataset, log_model=True, dir="wandb", config=config, entity="rindti"
+)
 
-config = wandb.config
+# logger.experiment starts the run; wandb.config is unusable before that
+config = logger.experiment.config
 print(config)
 if config.dataset == "homology":
     model = HomologyModel(hidden_dim=config.hidden_dim, dropout=config.dropout, num_classes=1195)
@@ -58,12 +71,14 @@ data = {
     ablation=config.ablation,
     ablation_maskfrac=config.ablation_maskfrac,
     random_init=config.random_init,
+    embed_cache=config.embed_cache,
 )
 trainer = pl.Trainer(
     accelerator="auto",
-    devices=-1,
-    precision="bf16-mixed",
-    max_epochs=10000,
+    devices="auto",
+    # CPUs without native bf16 run bf16 autocast several times slower than fp32
+    precision="bf16-mixed" if torch.cuda.is_available() else "32-true",
+    max_epochs=config.max_epochs,
     logger=logger,
     callbacks=[
         pl.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", dirpath="checkpoints"),
@@ -74,4 +89,7 @@ trainer = pl.Trainer(
     ],
 )
 trainer.fit(model, data)
-trainer.test(model, data)
+results = trainer.test(model, data, ckpt_path="best")
+if config.summary_json:
+    with open(config.summary_json, "w") as f:
+        json.dump({k: v for r in results for k, v in r.items()}, f, indent=2)
