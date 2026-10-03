@@ -8,7 +8,7 @@ import torch
 from step.data import FluorescenceDataModule, HomologyDataModule, StabilityDataModule
 from step.data.datamodules import DTIDataModule
 from step.models import DTIModel, HomologyModel, RegressionModel
-from step.utils import tracking_uri
+from step.utils import mlflow_logger
 
 # Ignore all deprecation warnings
 torch.set_float32_matmul_precision("medium")
@@ -45,7 +45,7 @@ parser.add_argument("--summary_json", type=str, default=None, help="Write the te
 config = parser.parse_args()
 pl.seed_everything(config.seed)
 
-logger = pl.loggers.MLFlowLogger(experiment_name=config.experiment or config.dataset, tracking_uri=tracking_uri())
+logger = mlflow_logger(config.experiment or config.dataset)
 logger.log_hyperparams(vars(config))
 print(config)
 if config.dataset == "homology":

@@ -2133,6 +2133,7 @@ source = { editable = "." }
 dependencies = [
     { name = "ankh" },
     { name = "beartype" },
+    { name = "filelock" },
     { name = "foldcomp" },
     { name = "h5py" },
     { name = "joblib" },
@@ -2168,6 +2169,7 @@ dev = [
 requires-dist = [
     { name = "ankh", specifier = "==1.10.0" },
     { name = "beartype", specifier = "==0.22.9" },
+    { name = "filelock", specifier = "==4.0.0" },
     { name = "foldcomp", specifier = "==1.0.0" },
     { name = "h5py", specifier = "==3.16.0" },
     { name = "joblib", specifier = "==1.6.0" },

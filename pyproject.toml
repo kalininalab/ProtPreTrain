@@ -31,6 +31,7 @@ dependencies = [
     "foldcomp==1.0.0",
     "h5py==3.16.0",
     "joblib==1.6.0",
+    "filelock==4.0.0",
     "Levenshtein==0.27.5",
     "matplotlib==3.11.2",
     "mlflow==3.16.1",

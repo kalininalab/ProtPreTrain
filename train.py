@@ -80,7 +80,7 @@ import torch_geometric as pyg
 from step.data import FoldCompDataModule, MaskType, MaskTypeAnkh, MaskTypeBERT, PosNoise
 from step.data.transforms import SequenceOnly, graph_transforms
 from step.models import DenoiseModel
-from step.utils import tracking_uri
+from step.utils import mlflow_logger
 
 # Explicitly specify the process group backend if you choose to
 
@@ -90,7 +90,7 @@ pl.seed_everything(args.seed)
 config = vars(args)
 # Hyperparameters reach MLflow through model.hparams (DenoiseModel saves every CLI arg via **kwargs); logging
 # vars(args) as well would conflict wherever the model adjusts a value, e.g. pe_dim=0 for --pe none
-logger = pl.loggers.MLFlowLogger(experiment_name=args.experiment, tracking_uri=tracking_uri())
+logger = mlflow_logger(args.experiment)
 masktype_transform = {"normal": MaskType, "ankh": MaskTypeAnkh, "bert": MaskTypeBERT}
 
 # Graph + PE are built after PosNoise by default, so connectivity carries no information about the noise target.
