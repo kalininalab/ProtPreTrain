@@ -23,7 +23,7 @@ The tracking store is `$MLFLOW_TRACKING_URI`, defaulting to `sqlite:///mlflow.db
 ## Commands
 
 ```bash
-# Environment: uv-managed (Python 3.11, torch 2.14+cu126, pinned in uv.lock); creates .venv/
+# Environment: uv-managed (Python 3.11, torch 2.14+cu130 - needs a CUDA 13 driver, pinned in uv.lock); creates .venv/
 uv sync
 
 # Pretraining (uses every GPU visible to the process)

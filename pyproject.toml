@@ -25,7 +25,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-    # Verified stack: Python 3.11, torch 2.14.0+cu126 (2026-09-17)
+    # Verified stack: Python 3.11, torch 2.14.0+cu130 (2026-10-04)
     "ankh==1.10.0",
     "beartype==0.22.9",
     "foldcomp==1.0.0",
@@ -65,14 +65,15 @@ include = ["step*"]
 version = { attr = "step.version.version" }
 
 # torch-geometric 2.8 migrated neighbor ops from torch-cluster/-scatter/-sparse
-# to pyg-lib; these are the prebuilt +pt214cu126 wheels (no PyPI distribution).
+# to pyg-lib; these are the prebuilt +pt214cu130 wheels (no PyPI distribution).
+# CUDA 13.0 build: the only torch 2.14 wheels with Blackwell (sm_120) kernels; needs a CUDA 13 driver (>= 580).
 [tool.uv.sources]
-torch = { index = "pytorch-cu126" }
-pyg-lib = { url = "https://data.pyg.org/whl/torch-2.14.0%2Bcu126/pyg_lib-0.9.0%2Bpt214cu126-cp310-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl" }
+torch = { index = "pytorch-cu130" }
+pyg-lib = { url = "https://data.pyg.org/whl/torch-2.14.0%2Bcu130/pyg_lib-0.9.0%2Bpt214cu130-cp310-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl" }
 
 [[tool.uv.index]]
-name = "pytorch-cu126"
-url = "https://download.pytorch.org/whl/cu126"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [dependency-groups]
