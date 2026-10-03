@@ -76,7 +76,6 @@ import time
 import lightning.pytorch as pl
 import torch
 import torch_geometric as pyg
-import wandb
 
 from step.data import FoldCompDataModule, MaskType, MaskTypeAnkh, MaskTypeBERT, PosNoise
 from step.data.transforms import SequenceOnly, graph_transforms
@@ -92,7 +91,6 @@ config = vars(args)
 logger = pl.loggers.WandbLogger(
     project=args.wandb_project,
     entity="rindti",
-    settings=wandb.Settings(start_method="fork"),
     config=config,
     log_model=False,
 )
