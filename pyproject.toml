@@ -33,6 +33,7 @@ dependencies = [
     "joblib==1.6.0",
     "Levenshtein==0.27.5",
     "matplotlib==3.11.2",
+    "mlflow==3.16.1",
     "numpy==2.4.6",
     "pandas==3.0.5",
     "plotly==7.1.0",
