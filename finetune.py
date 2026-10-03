@@ -8,7 +8,7 @@ import torch
 from step.data import FluorescenceDataModule, HomologyDataModule, StabilityDataModule
 from step.data.datamodules import DTIDataModule
 from step.models import DTIModel, HomologyModel, RegressionModel
-from step.utils import mlflow_logger
+from step.utils import mlflow_logger, progress_bar
 
 # Ignore all deprecation warnings
 torch.set_float32_matmul_precision("medium")
@@ -77,8 +77,9 @@ trainer = pl.Trainer(
     max_epochs=config.max_epochs,
     logger=logger,
     callbacks=[
-        pl.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", dirpath="checkpoints"),
-        pl.callbacks.RichProgressBar(),
+        # Per-run directory: concurrent jobs sharing one would overwrite each other's identically named checkpoints
+        pl.callbacks.ModelCheckpoint(monitor="val/loss", mode="min", dirpath=f"checkpoints/{logger.run_id}"),
+        progress_bar(),
         pl.callbacks.RichModelSummary(),
         pl.callbacks.LearningRateMonitor(),
         pl.callbacks.EarlyStopping(monitor="val/loss", patience=10, mode="min"),

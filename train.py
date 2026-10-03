@@ -4,7 +4,19 @@ from step.utils import str_to_bool
 
 parser = ArgumentParser()
 parser.add_argument("--dataset", type=str, default="afdb_rep_v4")
-parser.add_argument("--resume", type=str, default=None)
+parser.add_argument(
+    "--resume",
+    type=str,
+    default=None,
+    help="Checkpoint to resume from, or 'auto': <ckpt_dir>/last.ckpt if it exists (restart-safe cluster jobs)",
+)
+parser.add_argument("--ckpt_dir", type=str, default=None, help="Checkpoint directory; default checkpoints/<run_id>")
+parser.add_argument(
+    "--ckpt_every_n_steps",
+    type=int,
+    default=0,
+    help="Also refresh <ckpt_dir>/last.ckpt every N steps (0: epoch end only)",
+)
 parser.add_argument("--hidden_dim", type=int, default=512)
 parser.add_argument("--pe_dim", type=int, default=64)
 parser.add_argument("--pos_dim", type=int, default=64)
@@ -71,6 +83,7 @@ if args.sequence_only and args.clean_graph:
     parser.error("--sequence_only needs the graph built at load time, so it can't be combined with --clean_graph")
 
 import json
+import os
 import time
 
 import lightning.pytorch as pl
@@ -80,7 +93,7 @@ import torch_geometric as pyg
 from step.data import FoldCompDataModule, MaskType, MaskTypeAnkh, MaskTypeBERT, PosNoise
 from step.data.transforms import SequenceOnly, graph_transforms
 from step.models import DenoiseModel
-from step.utils import mlflow_logger
+from step.utils import mlflow_logger, progress_bar
 
 # Explicitly specify the process group backend if you choose to
 
@@ -90,7 +103,21 @@ pl.seed_everything(args.seed)
 config = vars(args)
 # Hyperparameters reach MLflow through model.hparams (DenoiseModel saves every CLI arg via **kwargs); logging
 # vars(args) as well would conflict wherever the model adjusts a value, e.g. pe_dim=0 for --pe none
-logger = mlflow_logger(args.experiment)
+resume = args.resume
+run_id_file = os.path.join(args.ckpt_dir, "mlflow_run_id") if args.ckpt_dir else None
+if resume == "auto":
+    if not args.ckpt_dir:
+        parser.error("--resume auto needs --ckpt_dir")
+    last = os.path.join(args.ckpt_dir, "last.ckpt")
+    resume = last if os.path.exists(last) else None
+# A resumed job continues its MLflow run rather than starting a second one
+previous_run = open(run_id_file).read().strip() if resume and run_id_file and os.path.exists(run_id_file) else None
+logger = mlflow_logger(args.experiment, run_id=previous_run)
+ckpt_dir = args.ckpt_dir or f"checkpoints/{logger.run_id}"
+if run_id_file and pl.utilities.rank_zero_only.rank == 0:
+    os.makedirs(ckpt_dir, exist_ok=True)
+    with open(run_id_file, "w") as f:
+        f.write(logger.run_id)
 masktype_transform = {"normal": MaskType, "ankh": MaskTypeAnkh, "bert": MaskTypeBERT}
 
 # Graph + PE are built after PosNoise by default, so connectivity carries no information about the noise target.
@@ -123,8 +150,16 @@ model = DenoiseModel(**config)
 checkpoint = pl.callbacks.ModelCheckpoint(
     monitor="train/loss",
     mode="min",
-    dirpath=f"checkpoints/{logger.run_id}",
+    dirpath=ckpt_dir,
     save_on_train_epoch_end=True,
+)
+# Latest state, overwritten in place: what --resume auto restarts from
+latest = pl.callbacks.ModelCheckpoint(
+    dirpath=ckpt_dir,
+    filename="last",
+    every_n_train_steps=args.ckpt_every_n_steps or None,
+    save_on_train_epoch_end=True,
+    enable_version_counter=False,
 )
 trainer = pl.Trainer(
     accelerator="auto",
@@ -138,8 +173,9 @@ trainer = pl.Trainer(
     num_nodes=args.num_nodes,
     callbacks=[
         checkpoint,
+        latest,
         pl.callbacks.LearningRateMonitor(logging_interval="step"),
-        pl.callbacks.RichProgressBar(),
+        progress_bar(),
         pl.callbacks.RichModelSummary(),
     ],
     logger=logger,
@@ -147,7 +183,7 @@ trainer = pl.Trainer(
     # profiler="pytorch"
 )
 start = time.time()
-trainer.fit(model, datamodule=datamodule, ckpt_path=args.resume)
+trainer.fit(model, datamodule=datamodule, ckpt_path=resume)
 train_time = time.time() - start
 # Pretraining compute for reporting; params are counted after fit because the model has lazy layers
 if trainer.is_global_zero:
