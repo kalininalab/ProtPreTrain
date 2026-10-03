@@ -12,7 +12,7 @@ ignore-semiprivate = true
 ignore-private = true
 ignore-module = true
 fail-under = 80
-exclude = ["^test/*"]
+exclude = ["tests"]
 ignore-regex = ["^Base*", "^forward*", "^shared*", "^test*", "^raw"]
 verbose = 0
 quiet = false
@@ -33,9 +33,14 @@ follow_imports = "silent"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
+pythonpath = ["."]
+testpaths = ["tests"]
 markers = [
     "slow",
     "gpu",
+]
+filterwarnings = [
+  "ignore:You are trying to `self.log\\(\\)` but the `self.trainer` reference is not registered:UserWarning",
 ]
 
 [tool.pylint.'MESSAGES CONTROL']

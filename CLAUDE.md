@@ -34,13 +34,18 @@ python finetune.py --dataset stability --model_source prostt5 --model Rostlab/Pr
 # Aggregate downstream test metrics over seeds (mean ± 95% CI) and pretraining GPU-hours from wandb
 python scripts/aggregate_results.py --out results.csv
 
+# Smoke tests (CPU, ~10 s): imports, forward/predict/training steps for the rw / seq / invariant configs,
+# rotation invariance, masking transforms, and a seeded loss snapshot
+python -m pytest
+
 # Lint / format (pre-commit is the only enforced check; black+isort at line-length 119)
 pre-commit install
 pre-commit run --all-files
 ```
 
-No test suite exists. `test.py` and `test*.ipynb` are scratch/benchmark files, not tests, despite pytest
-config in `pyproject.toml`. `interrogate` in pre-commit rejects commits below 80% docstring coverage, so
+Tests live in `tests/test_smoke.py`; `test.py` and `test*.ipynb` are scratch/benchmark files, not tests.
+`tests/snapshots/baseline.pt` pins seeded training losses/outputs for each model config — a deliberate change to
+the model or loss means deleting it and rerunning `pytest` to regenerate. `interrogate` in pre-commit rejects commits below 80% docstring coverage, so
 new public functions/classes need a docstring.
 
 ## Architecture

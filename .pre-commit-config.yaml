@@ -38,7 +38,7 @@ repos:
     hooks:
       - id: interrogate
         args: [-vv]
-        exclude: ^test/
+        exclude: ^tests/
 
 ci:
   autofix_commit_msg: |
