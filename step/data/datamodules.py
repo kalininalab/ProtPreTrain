@@ -5,6 +5,7 @@ from typing import List, Literal, Optional
 import numpy as np
 import torch
 import torch_geometric.transforms as T
+from filelock import FileLock
 from lightning.pytorch import LightningDataModule, Trainer
 from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
@@ -260,17 +261,20 @@ class DownstreamDataModule(LightningDataModule):
 
     def embed_splits(self, splits: List[str]):
         """Embed the splits, reusing per-split embeddings from `embed_cache` when present."""
-        cached = {}
-        if self.embed_cache:
-            os.makedirs(self.embed_cache, exist_ok=True)
+        if not self.embed_cache:
+            self._embed(splits)
+            return
+        os.makedirs(self.embed_cache, exist_ok=True)
+        # Head-seed jobs sharing a cache start together: the first embeds, the others wait and load its result
+        with FileLock(os.path.join(self.embed_cache, ".lock")):
+            cached = {}
             for split in splits:
                 path = os.path.join(self.embed_cache, f"{split}.pt")
                 if os.path.exists(path):
                     cached[split] = torch.load(path, weights_only=False)
-        todo = [split for split in splits if split not in cached]
-        if todo:
-            self._embed(todo)
-            if self.embed_cache:
+            todo = [split for split in splits if split not in cached]
+            if todo:
+                self._embed(todo)
                 for split in todo:
                     torch.save(getattr(self, split), os.path.join(self.embed_cache, f"{split}.pt"))
         for split, data_list in cached.items():

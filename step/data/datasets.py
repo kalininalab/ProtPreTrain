@@ -12,6 +12,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import torch
+from filelock import FileLock
 from joblib import Parallel, delayed
 from torch_geometric.data import Data, Dataset, InMemoryDataset
 from tqdm.auto import tqdm
@@ -35,7 +36,11 @@ class FoldCompDataset(Dataset):
         self.pre_transform = pre_transform
         self.num_workers = num_workers
         self.chunk_size = chunk_size
-        super().__init__(root=f"data/{db_name}", transform=transform, pre_transform=pre_transform)
+        root = f"data/{db_name}"
+        os.makedirs(root, exist_ok=True)
+        # Concurrent jobs on a fresh database would download and process it simultaneously; one does, the rest wait
+        with FileLock(f"{root}/.prepare.lock"):
+            super().__init__(root=root, transform=transform, pre_transform=pre_transform)
 
     @property
     def raw_file_names(self):
@@ -49,8 +54,12 @@ class FoldCompDataset(Dataset):
 
     @property
     def _db_extensions(self):
-        """Extensions of the files that make up the foldcomp database."""
-        return ["", ".dbtype", ".index", ".lookup", ".source"]
+        """Extensions of the files that make up the foldcomp database.
+
+        ``.source`` is left out: foldcomp.setup fetches it when the server has one, but only afdb_rep_v4 does, so
+        requiring it made every other database re-download on each load.
+        """
+        return ["", ".dbtype", ".index", ".lookup"]
 
     def download(self):
         """Download the database using foldcomp.setup."""
@@ -105,11 +114,12 @@ class FoldCompDataset(Dataset):
     def lengths(self) -> np.ndarray:
         """Number of residues per structure, read from HDF5 shapes and cached in the processed dir."""
         path = f"{self.processed_dir}/lengths.npy"
-        if not os.path.exists(path):
-            chunks = Parallel(n_jobs=max(self.num_workers, 1))(
-                delayed(self._chunk_lengths)(start, finish) for start, finish in self._get_chunks()
-            )
-            np.save(path, np.concatenate(chunks))
+        with FileLock(f"{path}.lock"):
+            if not os.path.exists(path):
+                chunks = Parallel(n_jobs=max(self.num_workers, 1))(
+                    delayed(self._chunk_lengths)(start, finish) for start, finish in self._get_chunks()
+                )
+                np.save(path, np.concatenate(chunks))
         return np.load(path)
 
     def get(self, idx: int) -> Any:
@@ -145,7 +155,10 @@ class DownstreamDataset(InMemoryDataset):
         self, split: str, *, transform=None, pre_transform=None, pre_filter=None, processed_name: str = "processed"
     ):
         self.processed_name = processed_name
-        super().__init__(self.root, transform, pre_transform, pre_filter)
+        os.makedirs(self.root, exist_ok=True)
+        # Parallel finetune jobs would otherwise process the same files at once; one does, the rest wait and load
+        with FileLock(os.path.join(self.root, f".{processed_name}.lock")):
+            super().__init__(self.root, transform, pre_transform, pre_filter)
         # weights_only=False is required: these archives hold pickled PyG Data
         # objects, and torch>=2.6 defaults weights_only=True, which refuses them.
         self.data, self.slices = torch.load(self.processed_paths[self.splits[split]], weights_only=False)
