@@ -81,10 +81,15 @@ dev = [
 ]
 
 
-[tool.black]
+[tool.ruff]
+target-version = "py311"
 line-length = 119
-target-version = ['py36', 'py37', 'py38']
-include = '\.pyi?$'
+fix = true
+lint.select = ["E","F","W","B"]
+# a local wandb/ run directory otherwise makes the import sorter treat wandb as first-party
+lint.isort.known-third-party = ["wandb"]
+lint.isort.known-first-party = ["step"]
+lint.ignore = ["E501", "F841", "F811", "F401"]
 
 
 [tool.interrogate]
@@ -102,13 +107,6 @@ quiet = false
 whitelist-regex = []
 color = true
 
-
-[tool.isort]
-profile = "black"
-line_length = 119
-# a local wandb/ run directory otherwise makes isort treat wandb as first-party
-known_third_party = ["wandb"]
-known_first_party = ["step"]
 
 [tool.mypy]
 ignore_missing_imports = true
