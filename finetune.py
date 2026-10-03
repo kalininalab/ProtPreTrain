@@ -2,7 +2,7 @@ import argparse
 import json
 import warnings
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch
 import wandb
 

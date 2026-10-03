@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch_geometric.transforms as T
 import wandb
-from pytorch_lightning import LightningDataModule, Trainer
+from lightning.pytorch import LightningDataModule, Trainer
 from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.transforms import BaseTransform

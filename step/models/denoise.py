@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 import torch_geometric as pyg
 import torchmetrics as metrics
-from pytorch_lightning import LightningModule
+from lightning.pytorch import LightningModule
 from torch_geometric.data import Data
 from torch_geometric.utils import scatter
 

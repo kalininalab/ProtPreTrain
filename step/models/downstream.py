@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 import torchmetrics.functional as metrics
 import wandb
-from pytorch_lightning import LightningModule
+from lightning.pytorch import LightningModule
 from torch_geometric.data import Data
 from torch_geometric.utils import to_dense_batch
 

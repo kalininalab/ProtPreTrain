@@ -73,11 +73,10 @@ if args.sequence_only and args.clean_graph:
 import json
 import time
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch
 import torch_geometric as pyg
 import wandb
-from lightning.pytorch.strategies import DDPStrategy
 
 from step.data import FoldCompDataModule, MaskType, MaskTypeAnkh, MaskTypeBERT, PosNoise
 from step.data.transforms import SequenceOnly, graph_transforms
