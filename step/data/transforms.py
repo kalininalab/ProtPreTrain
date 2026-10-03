@@ -78,7 +78,11 @@ class MaskType(BaseTransform):
 
 
 class MaskTypeAnkh(BaseTransform):
-    """Ensures each amino acid is masked at least once in a graph."""
+    """Masks a ``pick_prob`` fraction of nodes, preferring one node per amino-acid class.
+
+    Class order is shuffled and all random draws use the torch RNG, so masking is
+    deterministic under a fixed ``torch.manual_seed``.
+    """
 
     def __init__(self, pick_prob: float):
         self.prob = pick_prob
@@ -86,27 +90,23 @@ class MaskTypeAnkh(BaseTransform):
     def forward(self, batch) -> torch.Tensor:
         N = batch.x.size(0)
         n = int(N * self.prob)
-        mask = set()
-        aas = torch.randperm(20)
-        for i in aas:
-            if len(mask) >= n:
-                break
-            subset = torch.where(batch.x == i)[0]
-            if subset.size(0) > 0:
-                mask.add(subset[random.randint(0, subset.size(0) - 1)].item())
-        if n < 20:
-            indices = list(mask)
-        else:
-            all_indices = set(range(N))
-            remaining_indices = list(all_indices - mask)
-            random.shuffle(remaining_indices)
-            indices = list(mask) + remaining_indices[: n - len(mask)]
         # Store as a boolean mask, not an index tensor: PyG concatenates custom
         # attributes without adding node offsets, so per-graph indices silently
         # point into the wrong graph once a batch is collated.
         bool_mask = torch.zeros(N, dtype=torch.bool)
-        if indices:
-            bool_mask[torch.tensor(indices, dtype=torch.long)] = True
+        # One node per class, classes visited in shuffled order.
+        num_picked = 0
+        for cls in torch.randperm(20):
+            if num_picked >= n:
+                break
+            idx = (batch.x == cls).nonzero(as_tuple=False).flatten()
+            if idx.numel() > 0:
+                bool_mask[idx[torch.randint(idx.numel(), ())]] = True
+                num_picked += 1
+        # Fill any remaining quota uniformly from the unmasked nodes.
+        if num_picked < n:
+            remaining = (~bool_mask).nonzero(as_tuple=False).flatten()
+            bool_mask[remaining[torch.randperm(remaining.numel())[: n - num_picked]]] = True
         batch.orig_x = batch.x.clone()
         batch.x[bool_mask] = 20
         batch.mask = bool_mask
