@@ -3,6 +3,35 @@
 All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [hpc branch] — 2026-10-04 — running on the conduit HTCondor cluster
+
+### Added
+
+- `hpc/`: environment-only docker image (`hpc/Dockerfile`, `hpc/build.sh` →
+  `ghcr.io/ilsenatorov/step`), job wrapper, `gpu.sub`/`cpu.sub`, setup script, smoke
+  test, example queue files and `hpc/README.md`.
+- `train.py --ckpt_dir`, `--resume auto`, `--ckpt_every_n_steps`: restart-safe
+  pretraining that continues the same MLflow run.
+- `scripts/prepare_data.py`: download + process a foldcomp database as its own job.
+- `scripts/merge_mlflow.py` and `aggregate_results.py --db_glob`: one MLflow store
+  per job (SQLite locking is unsafe across NFS clients), read together.
+- `scripts/benchmark.py pretrain|probe --condor FILE`: write HTCondor queue files.
+
+### Changed
+
+- torch 2.14 / pyg-lib now use the CUDA 13.0 build (`cu130`): the only torch 2.14
+  wheels with Blackwell (sm_120) kernels. Needs a CUDA 13 driver (>= 580); sm_75+.
+- Shared dataset processing, the lengths cache and `--embed_cache` are file-locked,
+  so concurrent jobs prepare them once.
+- `finetune.py` checkpoints go to `checkpoints/<run_id>` (concurrent jobs collided).
+- Progress bar: Rich on a terminal, sparse tqdm in batch logs.
+- The root `Dockerfile` moved to `hpc/Dockerfile` (environment-only).
+
+### Fixed
+
+- `FoldCompDataset` required `<db>.source`, which only `afdb_rep_v4` has, so every
+  other database re-downloaded on each load.
+
 ## [Unreleased] — 2026-10-04 — Weights & Biases replaced by MLflow
 
 MLflow now tracks experiments (params and metrics only). Checkpoints and datasets

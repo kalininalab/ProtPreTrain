@@ -115,8 +115,14 @@ other sources are sequence models and get `transform = pre_transform = None`.
 
 - `train.py` parses args *before* importing torch (deliberate — keeps `--help` fast); keep new imports below
   `args = parser.parse_args()`.
-- `train.py`/`finetune.py` use `accelerator="auto"` and every visible GPU; the repo is cluster-agnostic, cluster launch
-  tooling lives on a separate branch.
+- `train.py`/`finetune.py` use `accelerator="auto"` and every visible GPU.
+- **This is the `hpc` branch**: `hpc/` runs everything on the conduit HTCondor cluster (docker universe). Read
+  `hpc/README.md` first. Essentials: the image `ghcr.io/ilsenatorov/step` is environment-only (from `uv.lock`, rebuilt by
+  `hpc/build.sh` only when dependencies change) and the code is a git clone under `/home/s8ilsena/step` mounted into
+  every job; the submit node has a 2 GB memory limit, so anything beyond `git`/`condor_*`/stdlib python is a job
+  (`hpc/gpu.sub`, `hpc/cpu.sub`, queue files `<mlflow store>, <command>` in `hpc/runs/`); each job writes its own MLflow
+  SQLite store (`scripts/aggregate_results.py --db_glob`, `scripts/merge_mlflow.py` read them together); pretraining
+  is restart-safe with `--ckpt_dir ... --resume auto`; shared data preparation and `--embed_cache` are file-locked.
 - The graph (radius edges + optional RandomWalkPE) is built at *load time after `PosNoise`*; building it in `pre_transforms` leaks
   the clean structure into the denoising target (kept only as the `--clean_graph` ablation).
 - `--batch_sampling` needs `use_distributed_sampler=False` (set in `train.py`): `DynamicBatchSampler` shards across DDP
