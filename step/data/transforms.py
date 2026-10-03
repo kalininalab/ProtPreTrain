@@ -1,5 +1,4 @@
 import random
-from typing import Any
 
 import torch
 import torch_geometric.transforms as T
@@ -44,22 +43,6 @@ class RandomWalkPE(BaseTransform):
             pe_list.append(walk_matrix.diag())
         pe = torch.stack(pe_list, dim=-1)
         data[self.attr_name] = pe
-        return data.to("cpu")
-
-
-class ToCuda:
-    def __init__(self, p: float = 1.0):
-        self.p = p
-
-    def __call__(self, data: Data) -> Data:
-        if random.random() < self.p:
-            return data.to("cuda")
-        else:
-            return data
-
-
-class ToCpu:
-    def __call__(self, data: Data) -> Data:
         return data.to("cpu")
 
 
@@ -153,26 +136,6 @@ class MaskTypeBERT(BaseTransform):
         mut_indices = indices[num_masked_nodes : num_masked_nodes + num_mutated_nodes]  # All nodes that are mutated
         batch.x[mask_indices] = 20
         batch.x[mut_indices] = torch.randint_like(batch.x[mut_indices], low=0, high=20)
-        return batch
-
-
-class MaskTypeWeighted(MaskType):
-    """Masks the type of the nodes in a graph."""
-
-    def forward(self, batch) -> torch.Tensor:
-        num_mut = int(batch.x.size(0) * self.prob)
-        num_mut_per_aa = int(num_mut / 20)
-        mask = []
-        for i in range(20):
-            indices = torch.where(batch.x == i)[0]
-            random_pick = torch.randperm(indices.size(0))[:num_mut_per_aa]
-            mask.append(indices[random_pick])
-        indices = torch.cat(mask)
-        bool_mask = torch.zeros(batch.x.size(0), dtype=torch.bool)
-        bool_mask[indices] = True
-        batch.orig_x = batch.x.clone()
-        batch.x[bool_mask] = 20
-        batch.mask = bool_mask
         return batch
 
 
