@@ -13,6 +13,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `train.py --ckpt_dir`, `--resume auto`, `--ckpt_every_n_steps`: restart-safe
   pretraining that continues the same MLflow run.
 - `scripts/prepare_data.py`: download + process a foldcomp database as its own job.
+- DeepLoc 10-class subcellular localization (`finetune.py --dataset deeploc`): PEER's split of DeepLoc 1.0 on
+  AlphaFold structures, raw files built by `scripts/build_deeploc.py` (`hpc/runs/build_deeploc.txt`).
 - `scripts/merge_mlflow.py` and `aggregate_results.py --db_glob`: one MLflow store
   per job (SQLite locking is unsafe across NFS clients), read together.
 - `scripts/benchmark.py pretrain|probe --condor FILE`: write HTCondor queue files.

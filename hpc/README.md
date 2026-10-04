@@ -39,6 +39,11 @@ tar -xzf /tmp/homology/dataset.tar.gz -C /tmp/homology && rm /tmp/homology/datas
 rsync -a /tmp/homology/ conduit:/home/s8ilsena/step/data/homology/raw/
 ```
 
+DeepLoc (`--dataset deeploc`, 10-class subcellular localization) is the exception: it is built by a CPU job,
+`condor_submit -a 'runfile=hpc/runs/build_deeploc.txt' hpc/cpu.sub`. It downloads DeepLoc 1.0, the PEER split and
+the ~3 GB `afdb_swissprot_v4` foldcomp database into `data/`, and writes `data/deeploc/raw/` (~120 MB; ~1 min and
+~1.2 GB RAM once the database is there).
+
 ## Jobs
 
 Two submit files, one queue-file format. Each line of a queue file is one job:
@@ -67,6 +72,7 @@ pretraining run: `-a 'request_GPUs=4' -a 'request_CPUs=32' -a 'request_memory=12
 |---|---|---|
 | `smoke.txt` | gpu.sub | `hpc/smoke.py`: versions, GPU, kernels, foldcomp server reachable |
 | `prepare_<db>.txt` | cpu.sub | `scripts/prepare_data.py`: download + process a foldcomp DB, cache lengths |
+| `build_deeploc.txt` | cpu.sub | `scripts/build_deeploc.py`: DeepLoc raw files, structures from afdb_swissprot_v4 |
 | `pretrain_demo.txt` | gpu.sub | small restart-safe pretraining run on m_jannaschii |
 | `finetune_demo.txt` | gpu.sub | fluorescence probe of the demo checkpoint, 2 head seeds |
 | `aggregate.txt` | cpu.sub | `scripts/aggregate_results.py` over every store -> `results.csv` |

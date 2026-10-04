@@ -17,8 +17,8 @@ from joblib import Parallel, delayed
 from torch_geometric.data import Data, Dataset, InMemoryDataset
 from tqdm.auto import tqdm
 
-from .parsers import ProtStructure
-from .utils import apply_edits, compute_edits, extract_uniprot_id, smiles_to_ecfp
+from .parsers import ProtStructure, aminoacids
+from .utils import apply_edits, compute_edits, extract_uniprot_id, foldcomp_ca, smiles_to_ecfp
 
 
 class FoldCompDataset(Dataset):
@@ -308,6 +308,70 @@ class HomologyDataset(DownstreamDataset):
                 graph = Data(**struct.get_graph())
                 graph["y"] = torch.tensor(df.loc[name, "fold_label"], dtype=torch.long)
                 graph["seq"] = struct.get_sequence()
+                data_list.append(graph)
+        return data_list
+
+
+class DeepLocDataset(DownstreamDataset):
+    """Subcellular localization, 10 classes (DeepLoc 1.0), on AlphaFold structures.
+
+    Data: Almagro Armenteros et al., "DeepLoc: prediction of protein subcellular localization using deep learning",
+    Bioinformatics 33(21):3387-3395 (2017), https://services.healthtech.dtu.dk/services/DeepLoc-1.0/deeploc_data.fasta
+    (14,004 SwissProt proteins, 2,773 of them marked test).
+
+    Split: PEER (Xu et al., "PEER: A Comprehensive and Multi-Task Benchmark for Protein Sequence Understanding",
+    NeurIPS 2022 Datasets and Benchmarks), the one TorchDrug's ``SubcellularLocalization`` loads: DeepLoc's test set,
+    and its training set split into train/valid. The released files hold 8,420 / 2,811 / 2,773 proteins (the paper's
+    table says 8,945 / 2,248 / 2,768). Labels follow PEER's order (``LOCATIONS``); DeepLoc's "Cytoplasm-Nucleus"
+    proteins are Cytoplasm.
+
+    Structures are AlphaFold DB v4 predictions from the foldcomp database afdb_swissprot_v4; proteins without one are
+    left out: 8,302 / 2,776 / 2,747 remain (13,825 of 14,004, 98.7%; the build script lists what is missing).
+    ``scripts/build_deeploc.py`` makes the raw files: one json of records (``id``, ``label``, ``location``, ...) per
+    split, and ``deeploc_structures.h5`` mapping each accession to its foldcomp-compressed structure. Graphs carry CA
+    positions (``pos``), residue types (``x``), ``y``, ``seq`` and ``id``.
+    """
+
+    root = "data/deeploc"
+    LOCATIONS = [
+        "Cell.membrane",
+        "Cytoplasm",
+        "Endoplasmic.reticulum",
+        "Golgi.apparatus",
+        "Lysosome/Vacuole",
+        "Mitochondrion",
+        "Nucleus",
+        "Peroxisome",
+        "Plastid",
+        "Extracellular",
+    ]
+
+    @property
+    def raw_file_names(self):
+        """Files that have to be present in the raw directory."""
+        return ["deeploc_train.json", "deeploc_valid.json", "deeploc_test.json", "deeploc_structures.h5"]
+
+    def download(self):
+        """Raw files are built by a script, not fetched from W&B like the other downstream datasets."""
+        missing = [f for f in self.raw_file_names if not os.path.exists(os.path.join(self.raw_dir, f))]
+        raise FileNotFoundError(
+            f"{type(self).__name__}: missing raw files in {self.raw_dir}: {', '.join(missing)}\n"
+            "Build them with `python scripts/build_deeploc.py` (downloads DeepLoc, the PEER split and the ~3 GB "
+            "afdb_swissprot_v4 foldcomp database)."
+        )
+
+    def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
+        data_list = []
+        with h5py.File(self.raw_paths[3], "r") as h5:
+            for row in tqdm(df.itertuples(), total=len(df)):
+                seq, ca = foldcomp_ca(h5[row.id][()].tobytes())
+                graph = Data(
+                    x=torch.tensor([aminoacids(aa, "code") for aa in seq]),
+                    pos=torch.from_numpy(ca),
+                    y=torch.tensor(row.label, dtype=torch.long),
+                    seq=seq,
+                    id=row.id,
+                )
                 data_list.append(graph)
         return data_list
 

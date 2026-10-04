@@ -1,7 +1,9 @@
 import re
 from typing import List, Tuple
 
+import foldcomp
 import Levenshtein
+import numpy as np
 import torch
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -57,6 +59,27 @@ def extract_uniprot_id(title: str) -> str:
         return title.split("-")[1]
     else:
         raise ValueError(f"Title '{title}' does not match any pattern.")
+
+
+# Heavy atoms per residue, in the order foldcomp.get_data lists coordinates: N, CA, C, O, then the side chain
+HEAVY_ATOMS = dict(
+    A=5, R=11, N=8, D=8, C=6, Q=9, E=9, G=4, H=10, I=8, L=8, K=9, M=8, F=11, P=7, S=6, T=7, W=14, Y=12, V=7
+)
+
+
+def foldcomp_ca(fcz: bytes) -> Tuple[str, np.ndarray]:
+    """Sequence and CA coordinates (float32, N x 3) of a foldcomp-compressed structure.
+
+    Uses foldcomp.get_data rather than foldcomp.decompress + ProtStructure: decompress leaks the PDB text it returns
+    (~300 KB per structure, GBs over a dataset). Same result as parsing the decompressed PDB's CA atoms.
+    """
+    data = foldcomp.get_data(fcz)
+    seq = data["residues"]
+    counts = np.array([HEAVY_ATOMS[aa] for aa in seq])
+    coords = np.asarray(data["coordinates"], dtype=np.float32)
+    if len(coords) != counts.sum() + 1:  # + the C-terminal OXT
+        raise ValueError(f"{len(coords)} atoms for a {len(seq)}-residue chain, expected {counts.sum() + 1}")
+    return seq, coords[np.cumsum(counts) - counts + 1]
 
 
 def smiles_to_ecfp(smiles: str, radius: int = 2, nbits: int = 2048) -> torch.Tensor:
