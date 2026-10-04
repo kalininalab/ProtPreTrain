@@ -5,10 +5,13 @@ Subcommands (run from the repo root):
     python scripts/benchmark.py loader                 # per-sample load-time transform cost, pe=rw vs seq/none
     python scripts/benchmark.py pretrain --seeds 0 1 2 # CONFIGS x seeds through train.py (resumable)
     python scripts/benchmark.py probe --head_seeds 0 1 2  # frozen-embedding homology probe of every finished run
-    python scripts/benchmark.py table                  # bench/results.csv + bench/results.md
+    python scripts/benchmark.py probe --dataset stability  # same for another downstream dataset (PROBE_METRICS)
+    python scripts/benchmark.py table                  # bench/results.csv + bench/results.md, every probed dataset
 
-Every run lives in ``<out>/<config>_s<seed>/`` (``pretrain.json``, ``pretrain.log``, ``probe_h<head_seed>.json``,
-``probe_h<head_seed>.log``). A run whose json already exists is skipped, so any subcommand can be re-run after an
+Every run lives in ``<out>/<config>_s<seed>/`` (``pretrain.json``, ``pretrain.log``, ``checkpoints/``, and per head
+seed ``probe_h<head_seed>.json`` + ``.log`` for homology, ``probe_<dataset>_h<head_seed>.json`` + ``.log`` for any
+other dataset). Probe jobs of one run share frozen-encoder embeddings in ``embeddings/`` (homology) or
+``embeddings_<dataset>/``. A run whose json already exists is skipped, so any subcommand can be re-run after an
 interruption. Subprocesses log to MLflow in ``<out>/mlflow.db`` (experiment ``step-bench``), separate from the
 main tracking store.
 
@@ -108,9 +111,15 @@ CONFIGS += [
 # The random-init probe control reuses this config's checkpoints (architecture + hparams, fresh weights)
 RANDOM_INIT_OF = "+invariant"  # the final cumulative config
 
-PROBE = {"dataset": "homology", "max_epochs": 200}
+PROBE = {"dataset": "homology", "max_epochs": 200}  # defaults of the probe subcommand
 PRETRAIN_METRICS = ["train_time_s", "num_params", "val/pred_acc", "val/noise_loss", "val/pred_loss", "train/loss"]
-PROBE_METRICS = ["test_fold/acc", "test_superfamily/acc", "test_family/acc"]
+# Probe datasets (finetune.py --dataset) -> {test metric in its summary json: results.md column label}
+PROBE_METRICS = {
+    "homology": {"test_fold/acc": "fold acc", "test_superfamily/acc": "superfam acc", "test_family/acc": "family acc"},
+    "fluorescence": {"test/spearman": "fluorescence ρ"},
+    "stability": {"test/spearman": "stability ρ"},
+    "deeploc": {"test/acc": "deeploc acc"},  # 10-class subcellular localisation
+}
 EXPERIMENT = "step-bench"
 
 
@@ -316,13 +325,23 @@ def _probe_targets(out: Path, configs: list) -> list:
     return targets
 
 
+def probe_stem(dataset: str, head_seed) -> str:
+    """File stem of one probe's json/log/mlflow store; homology keeps the original ``probe_h<seed>`` names."""
+    return f"probe_h{head_seed}" if dataset == "homology" else f"probe_{dataset}_h{head_seed}"
+
+
+def embed_cache(d: Path, dataset: str) -> Path:
+    """Per-run, per-dataset embedding cache (finetune.py keys caches by split name only, so datasets can't share)."""
+    return d / ("embeddings" if dataset == "homology" else f"embeddings_{dataset}")
+
+
 def glob_escape(s: str) -> str:
     """Escape glob metacharacters in a config name."""
     return "".join(f"[{c}]" if c in "[]*?" else c for c in s)
 
 
 def cmd_probe(args, passthrough):
-    """Homology probe (frozen encoder + MLP head) for each finished pretraining run and the random-init control."""
+    """Downstream probe (frozen encoder + MLP head) for each finished pretraining run and the random-init control."""
     out = Path(args.out).resolve()
     python = "python" if args.condor else sys.executable
     jobs, condor = [], []
@@ -332,41 +351,46 @@ def cmd_probe(args, passthrough):
             print(f"skip {d.name}: checkpoint {ckpt!r} missing")
             continue
         for hs in args.head_seeds:
-            summary = d / f"probe_h{hs}.json"
+            stem = probe_stem(args.dataset, hs)
+            summary = d / f"{stem}.json"
             if summary.exists():
-                print(f"skip {d.name} head seed {hs}: exists")
+                print(f"skip {d.name} {args.dataset} head seed {hs}: {summary.name} exists")
                 continue
             cmd = (
                 [python, "finetune.py"]
-                + to_cli({**PROBE, "max_epochs": args.max_epochs})
+                + to_cli({"dataset": args.dataset, "max_epochs": args.max_epochs})
                 + ["--model_source", "checkpoint", "--model", str(ckpt), "--seed", str(hs)]
                 + ["--experiment", EXPERIMENT, "--summary_json", str(summary)]
                 # the encoder is frozen, so every head seed reuses one set of embeddings per run
-                + ["--embed_cache", str(d / "embeddings")]
+                + ["--embed_cache", str(embed_cache(d, args.dataset))]
                 + (["--random_init"] if random_init else [])
                 + passthrough
             )
             if not args.dry_run:
                 d.mkdir(parents=True, exist_ok=True)
-            condor.append((d / f"probe_h{hs}.mlflow.db", cmd))
+            condor.append((d / f"{stem}.mlflow.db", cmd))
             jobs.append(
-                lambda cmd=cmd, d=d, hs=hs: run_cmd(cmd, d / f"probe_h{hs}.log", args.dry_run, out / "mlflow.db")
+                lambda cmd=cmd, d=d, stem=stem: run_cmd(cmd, d / f"{stem}.log", args.dry_run, out / "mlflow.db")
             )
     if not jobs:
         print("probe: nothing to do")
         return
     if args.condor:
-        # Head seeds of one run share --embed_cache and data/homology; finetune.py file-locks both, so they can all
+        # Head seeds of one run share --embed_cache and data/<dataset>; finetune.py file-locks both, so they can all
         # be queued at once (the first embeds, the rest wait and load)
         write_condor(args.condor, condor)
         return
-    # The first probe processes data/homology for this graph setup; run it alone so parallel jobs don't race on it
+    # The first probe processes data/<dataset> for this graph setup; run it alone so parallel jobs don't race on it
     rcs = [jobs[0]()] + run_all(jobs[1:], args.jobs)
     print(f"probe: {len(rcs)} launched, {sum(rc != 0 for rc in rcs)} failed")
 
 
 def cmd_table(args, _passthrough):
-    """Collect all jsons into results.csv (one row per pretraining run) and results.md (mean ± std over seeds)."""
+    """Collect all jsons into results.csv (one row per pretraining run) and results.md (mean ± std over seeds).
+
+    Every dataset in PROBE_METRICS with probe jsons in a run dir contributes ``<dataset>/<metric>`` columns (head seeds
+    averaged within the run) and ``<dataset>/n_head_seeds``.
+    """
     import numpy as np
     import pandas as pd
 
@@ -386,11 +410,12 @@ def cmd_table(args, _passthrough):
                 row.update({k: p.get(k) for k in PRETRAIN_METRICS})
             else:
                 row["num_params"] = p.get("num_params")
-        probes = [json.loads(f.read_text()) for f in sorted(d.glob("probe_h*.json"))]
-        row["n_head_seeds"] = len(probes)
-        for m in PROBE_METRICS:
-            vals = [pr[m] for pr in probes if pr.get(m) is not None]
-            row[m] = float(np.mean(vals)) if vals else None  # head seeds averaged within a pretraining seed
+        for ds, metrics in PROBE_METRICS.items():
+            probes = [json.loads(f.read_text()) for f in sorted(d.glob(f"{probe_stem(ds, '*')}.json"))]
+            row[f"{ds}/n_head_seeds"] = len(probes)
+            for m in metrics:
+                vals = [pr[m] for pr in probes if pr.get(m) is not None]
+                row[f"{ds}/{m}"] = float(np.mean(vals)) if vals else None  # head seeds averaged per pretraining seed
         rows.append(row)
     if not rows:
         sys.exit(f"no runs under {out}")
@@ -405,9 +430,13 @@ def cmd_table(args, _passthrough):
         ("num_params", "params (M)", 1e-6, 2),
         ("val/pred_acc", "val pred acc", 1, 3),
         ("val/noise_loss", "val noise loss", 1, 3),
-        ("test_fold/acc", "fold acc", 1, 3),
-        ("test_superfamily/acc", "superfam acc", 1, 3),
-        ("test_family/acc", "family acc", 1, 3),
+    ]
+    # one column per probe metric that any run has a value for
+    cols += [
+        (f"{ds}/{m}", label, 1, 3)
+        for ds, metrics in PROBE_METRICS.items()
+        for m, label in metrics.items()
+        if pd.to_numeric(df[f"{ds}/{m}"], errors="coerce").notna().any()
     ]
     lines = ["| config | n | " + " | ".join(c[1] for c in cols) + " |", "|---" * (len(cols) + 2) + "|"]
     for config, g in df.groupby("config", sort=False):
@@ -422,8 +451,7 @@ def cmd_table(args, _passthrough):
                 cells.append(f"{v.mean():.{digits}f} ± {v.std():.{digits}f}")
         lines.append(f"| {config} | {len(g)} | " + " | ".join(cells) + " |")
     md = (
-        "\n".join(lines)
-        + "\n\nmean ± std over pretraining seeds; probe accuracies are first averaged over head seeds.\n"
+        "\n".join(lines) + "\n\nmean ± std over pretraining seeds; probe metrics are first averaged over head seeds.\n"
     )
     (out / "results.md").write_text(md)
     print(md)
@@ -447,7 +475,7 @@ def main():
     p.add_argument("--maskfrac", type=float, default=0.15)
     p.add_argument("--num_workers", type=int, default=10, help="Only used if the dataset still needs processing")
 
-    for name, helptext in [("pretrain", "Run CONFIGS x seeds via train.py"), ("probe", "Homology probe per run")]:
+    for name, helptext in [("pretrain", "Run CONFIGS x seeds via train.py"), ("probe", "Downstream probe per run")]:
         p = sub.add_parser(name, help=helptext)
         p.add_argument("--configs", nargs="*", default=[], help="Subset of config names (default: all)")
         p.add_argument("--jobs", type=int, default=1, help="Concurrent subprocesses")
@@ -459,6 +487,9 @@ def main():
     sub.choices["pretrain"].add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
     sub.choices["probe"].add_argument("--head_seeds", type=int, nargs="+", default=[0, 1, 2])
     sub.choices["probe"].add_argument("--max_epochs", type=int, default=PROBE["max_epochs"])
+    sub.choices["probe"].add_argument(
+        "--dataset", choices=list(PROBE_METRICS), default=PROBE["dataset"], help="finetune.py downstream dataset"
+    )
 
     sub.add_parser("table", help="Aggregate jsons into results.csv / results.md")
 

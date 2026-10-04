@@ -85,11 +85,18 @@ condor_submit -a 'runfile=hpc/runs/bench_pretrain.txt' hpc/gpu.sub
 # ...once they have finished:
 python3 scripts/benchmark.py --out /home/s8ilsena/step/bench probe --condor hpc/runs/bench_probe.txt -- --num_workers 7
 condor_submit -a 'runfile=hpc/runs/bench_probe.txt' hpc/gpu.sub
+# other downstream datasets (homology is the default): fluorescence, stability, deeploc
+python3 scripts/benchmark.py --out /home/s8ilsena/step/bench probe --dataset stability \
+    --condor hpc/runs/bench_probe_stability.txt -- --num_workers 7
+condor_submit -a 'runfile=hpc/runs/bench_probe_stability.txt' hpc/gpu.sub
 condor_submit -a 'runfile=hpc/runs/bench_table.txt' hpc/cpu.sub   # -> bench/results.md
 ```
 
-A run whose summary json already exists is skipped, so regenerating a queue file after failures only resubmits what
-is missing. `--preset scale` needs `prepare_afdb_rep_v4.txt` to have finished first.
+Homology probes write `probe_h<seed>.{json,log,mlflow.db}` and cache embeddings in `<run>/embeddings/`; any other
+dataset writes `probe_<dataset>_h<seed>.*` and `<run>/embeddings_<dataset>/`. `table` reports every dataset that has
+results (metrics per dataset: `PROBE_METRICS` in the script). A run whose summary json already exists is skipped, so
+regenerating a queue file after failures only resubmits what is missing. `--preset scale` needs
+`prepare_afdb_rep_v4.txt` to have finished first.
 
 ## Restarts
 

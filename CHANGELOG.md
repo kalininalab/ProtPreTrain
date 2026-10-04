@@ -16,6 +16,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `scripts/merge_mlflow.py` and `aggregate_results.py --db_glob`: one MLflow store
   per job (SQLite locking is unsafe across NFS clients), read together.
 - `scripts/benchmark.py pretrain|probe --condor FILE`: write HTCondor queue files.
+- `scripts/benchmark.py probe --dataset homology|fluorescence|stability|deeploc`: probe other downstream
+  datasets (`probe_<dataset>_h<seed>.json`, homology keeps `probe_h<seed>.json`); `table` reports all of them.
 
 ### Changed
 

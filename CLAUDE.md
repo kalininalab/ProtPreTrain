@@ -129,6 +129,7 @@ other sources are sequence models and get `transform = pre_transform = None`.
   ranks itself, from `FoldCompDataset.lengths()`.
 - `data/` holds real processed datasets and is gitignored — do not delete it casually.
 - Precision is `bf16-mixed` only when CUDA is available: CPUs without native bf16 run it ~8× slower than fp32.
-- `scripts/benchmark.py` runs the pretraining ablation matrix (`CONFIGS`) and the frozen-embedding homology probe;
-  `--preset local` uses `data/e_coli_bench` (symlinked E. coli proteome), `--preset scale` is the cluster setup.
+- `scripts/benchmark.py` runs the pretraining ablation matrix (`CONFIGS`) and the frozen-embedding probes
+  (`probe --dataset`, default homology); `--preset local` uses `data/e_coli_bench` (symlinked E. coli proteome),
+  `--preset scale` is the cluster setup.
   Bench runs log to their own store, `<out>/mlflow.db` (experiment `step-bench`).
