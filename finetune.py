@@ -5,9 +5,9 @@ import warnings
 import lightning.pytorch as pl
 import torch
 
-from step.data import FluorescenceDataModule, HomologyDataModule, StabilityDataModule
+from step.data import DeepLocDataModule, FluorescenceDataModule, HomologyDataModule, StabilityDataModule
 from step.data.datamodules import DTIDataModule
-from step.models import DTIModel, HomologyModel, RegressionModel
+from step.models import ClassificationModel, DTIModel, HomologyModel, RegressionModel
 from step.utils import mlflow_logger, progress_bar
 
 # Ignore all deprecation warnings
@@ -17,7 +17,7 @@ torch.multiprocessing.set_sharing_strategy("file_system")
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability", "homology", "dti"]
+    "--dataset", type=str, default="fluorescence", choices=["fluorescence", "stability", "homology", "deeploc", "dti"]
 )
 parser.add_argument("--model_source", type=str, choices=["checkpoint", "huggingface", "ankh", "prostt5"])
 parser.add_argument("--model", type=str, help="Local .ckpt path (checkpoint) or model name")
@@ -50,6 +50,8 @@ logger.log_hyperparams(vars(config))
 print(config)
 if config.dataset == "homology":
     model = HomologyModel(hidden_dim=config.hidden_dim, dropout=config.dropout, num_classes=1195)
+elif config.dataset == "deeploc":
+    model = ClassificationModel(hidden_dim=config.hidden_dim, dropout=config.dropout, num_classes=10)
 elif config.dataset == "dti":
     model = DTIModel(hidden_dim=config.hidden_dim, dropout=config.dropout)
 else:
@@ -58,6 +60,7 @@ data = {
     "fluorescence": FluorescenceDataModule,
     "stability": StabilityDataModule,
     "homology": HomologyDataModule,
+    "deeploc": DeepLocDataModule,
     "dti": DTIDataModule,
 }[config.dataset](
     feature_extract_model=config.model,

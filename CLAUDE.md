@@ -107,6 +107,10 @@ other sources are sequence models and get `transform = pre_transform = None`.
   `rindti/<task>/<task>_dataset`), one processed `.pt` per split. Fluorescence is special: it has a single GFP structure and derives per-mutant graphs via
   `compute_edits`/`apply_edits` in `step/data/utils.py`. Homology has three test splits
   (fold/superfamily/family), which is why `HomologyModel.test_step` dispatches on `dataloader_idx`.
+- `DeepLocDataset` (10-class subcellular localization, `ClassificationModel(num_classes=10)`) is the exception to
+  the W&B route: `scripts/build_deeploc.py` builds its raw files (PEER's train/valid/test split of DeepLoc 1.0,
+  accessions recovered by sequence matching, AlphaFold structures from the `afdb_swissprot_v4` foldcomp DB stored as
+  foldcomp bytes in `deeploc_structures.h5`). Proteins without an AlphaFold structure are left out.
 - Heads use `LazySimpleMLP` (LazyLinear) so embedding dimension does not need to be known in advance.
 - `--ablation sequence|structure` injects `SequenceOnly`/`StructureOnly` transforms to zero out one modality,
   and only applies to our `checkpoint` model.

@@ -13,7 +13,14 @@ from torch_geometric.transforms import BaseTransform
 from tqdm import tqdm
 
 from ..models import DenoiseModel
-from .datasets import DTIDataset, FluorescenceDataset, FoldCompDataset, HomologyDataset, StabilityDataset
+from .datasets import (
+    DeepLocDataset,
+    DTIDataset,
+    FluorescenceDataset,
+    FoldCompDataset,
+    HomologyDataset,
+    StabilityDataset,
+)
 from .samplers import DynamicBatchSampler
 from .transforms import SequenceOnly, StructureOnly, graph_transforms
 
@@ -401,6 +408,12 @@ class StabilityDataModule(DownstreamDataModule):
     """Predict peptide stability."""
 
     dataset_class = StabilityDataset
+
+
+class DeepLocDataModule(DownstreamDataModule):
+    """Predict subcellular localization (10 classes)."""
+
+    dataset_class = DeepLocDataset
 
 
 class DTIDataModule(DownstreamDataModule):

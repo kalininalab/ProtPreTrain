@@ -329,3 +329,88 @@ def test_downstream_dataset_missing_raw_files(tmp_path, monkeypatch):
     with pytest.raises(FileNotFoundError, match="fluorescence_train.json") as err:
         FluorescenceDataset("train")
     assert "uvx wandb artifact get rindti/fluorescence/fluorescence_dataset:latest" in str(err.value)
+
+
+M_JANNASCHII = Path(__file__).parents[1] / "data" / "m_jannaschii" / "raw" / "m_jannaschii"
+
+
+@pytest.mark.skipif(not M_JANNASCHII.exists(), reason="needs the m_jannaschii foldcomp database in data/")
+def test_deeploc_dataset(tmp_path, monkeypatch):
+    """DeepLocDataset builds one graph per json record, from structures stored as foldcomp bytes in one HDF5 file."""
+    import json
+
+    import foldcomp
+    import h5py
+    import numpy as np
+
+    from step.data.datasets import DeepLocDataset
+    from step.data.parsers import ProtStructure
+    from step.data.utils import extract_uniprot_id
+
+    raw = tmp_path / "deeploc" / "raw"
+    raw.mkdir(parents=True)
+    expected = {}
+    with foldcomp.open(str(M_JANNASCHII), decompress=False) as db, h5py.File(raw / "deeploc_structures.h5", "w") as h5:
+        for i in range(8):
+            fcz = db[i]
+            title, pdb = foldcomp.decompress(fcz)
+            acc = extract_uniprot_id(title)
+            h5.create_dataset(acc, data=np.frombuffer(fcz, dtype=np.uint8))
+            expected[acc] = ProtStructure(pdb)  # the decompress + PDB parse path the other datasets use
+    accs = list(expected)
+    split_accs = {"train": accs[:4], "valid": accs[4:6], "test": accs[6:]}
+    for split, ids in split_accs.items():
+        records = [dict(id=acc, label=(3 * i) % 10, location="x") for i, acc in enumerate(ids)]
+        (raw / f"deeploc_{split}.json").write_text(json.dumps(records))
+
+    monkeypatch.setattr(DeepLocDataset, "root", str(tmp_path / "deeploc"))
+    for split, name in (("train", "train"), ("val", "valid"), ("test", "test")):
+        ds = DeepLocDataset(split)
+        assert len(ds) == len(split_accs[name])
+        for i, graph in enumerate(ds):
+            assert graph.id == split_accs[name][i]
+            assert graph.y.dtype == torch.long and graph.y.numel() == 1
+            assert int(graph.y) == (3 * i) % 10
+            ref = Data(**expected[graph.id].get_graph())
+            assert graph.seq == expected[graph.id].get_sequence() and len(graph.seq) == graph.num_nodes
+            assert graph.x.dtype == torch.long and torch.equal(graph.x, ref.x)
+            assert graph.pos.dtype == torch.float32 and torch.allclose(graph.pos, ref.pos, atol=1e-3)
+
+
+def test_deeploc_missing_raw_files(tmp_path, monkeypatch):
+    """DeepLoc's error points at the build script, not at W&B."""
+    from step.data.datasets import DeepLocDataset
+
+    monkeypatch.setattr(DeepLocDataset, "root", str(tmp_path / "deeploc"))
+    with pytest.raises(FileNotFoundError, match="scripts/build_deeploc.py"):
+        DeepLocDataset("train")
+
+
+def test_deeploc_split_matching():
+    """PEER records are matched to DeepLoc entries by sequence, through PEER's truncation of long sequences."""
+    import importlib.util
+
+    path = Path(__file__).parents[1] / "scripts" / "build_deeploc.py"
+    spec = importlib.util.spec_from_file_location("build_deeploc", path)
+    build = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build)
+
+    long_seq = "M" + "A" * 600 + "C" * 600 + "W"
+    deeploc = [
+        dict(id="P1", location="Nucleus", membrane="U", test=False, sequence="MKV"),
+        dict(id="P2", location="Cytoplasm-Nucleus", membrane="S", test=False, sequence=long_seq),
+        dict(id="P3", location="Nucleus", membrane="U", test=False, sequence="MKV"),  # duplicate sequence
+        dict(id="P4", location="Plastid", membrane="M", test=True, sequence="MLL"),
+    ]
+    peer = {
+        "train": [("MKV", 6), (long_seq[:500] + long_seq[-500:], 1)],
+        "valid": [("MKV", 6)],
+        "test": [("MLL", 8)],
+    }
+    splits = build.match_splits(peer, deeploc)
+    assert [r["id"] for r in splits["train"]] == ["P1", "P2"]
+    assert [r["id"] for r in splits["valid"]] == ["P3"]
+    assert splits["train"][1]["location"] == "Cytoplasm"
+    assert splits["test"][0] == dict(id="P4", label=8, location="Plastid", membrane="M", sequence="MLL")
+    with pytest.raises(AssertionError):  # a label that disagrees with DeepLoc's location
+        build.match_splits({"train": [("MKV", 0)], "valid": [], "test": []}, deeploc[:1])
