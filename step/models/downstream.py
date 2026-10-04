@@ -2,10 +2,12 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
-import torchmetrics.functional as metrics
 from lightning.pytorch import LightningModule
 from torch_geometric.data import Data
 from torch_geometric.utils import to_dense_batch
+from torchmetrics import MetricCollection
+from torchmetrics.classification import MulticlassAccuracy, MulticlassAUROC, MulticlassMatthewsCorrCoef
+from torchmetrics.regression import MeanAbsoluteError, PearsonCorrCoef, R2Score, SpearmanCorrCoef
 
 
 class LazySimpleMLP(torch.nn.Module):
@@ -43,11 +45,40 @@ class SimpleMLP(torch.nn.Module):
 
 
 class BaseModel(LightningModule):
-    """Base class for all downstream stuff."""
+    """Base class for all downstream stuff.
+
+    Metrics are torchmetrics objects per stage, accumulated over the whole epoch and computed once at its end:
+    correlations, R2, AUROC and MCC are not averages of per-batch values (which differ from the dataset-level metric,
+    badly so when a split is sorted by label or target).
+    """
+
+    stages = ("train", "val", "test")
 
     def __init__(self):
         super().__init__()
         self.save_hyperparameters()
+
+    def _stage_metrics(self, make: dict) -> torch.nn.ModuleDict:
+        """One MetricCollection per stage, logged as ``<stage>/<name>``; ``make`` maps names to metric factories.
+
+        Keyed ``<stage>_metrics``: a ModuleDict key cannot be ``train``, which would shadow ``nn.Module.train``.
+        """
+        return torch.nn.ModuleDict(
+            {
+                f"{stage}_metrics": MetricCollection({k: f() for k, f in make.items()}, prefix=f"{stage}/")
+                for stage in self.stages
+            }
+        )
+
+    def stage_metrics(self, stage: str) -> MetricCollection:
+        """The metrics accumulated for ``stage`` (e.g. ``"val"`` or ``"test_fold"``)."""
+        return self.epoch_metrics[f"{stage}_metrics"]
+
+    def _log_epoch_metrics(self, step_name: str, preds: torch.Tensor, target: torch.Tensor, batch_size: int):
+        """Accumulate this batch into the stage's metrics; Lightning computes and resets them at epoch end."""
+        collection = self.stage_metrics(step_name)
+        collection.update(preds, target)
+        self.log_dict(collection, on_step=False, on_epoch=True, batch_size=batch_size, add_dataloader_idx=False)
 
     def forward(self, batch: Data) -> torch.Tensor:
         """Use the simple MLP."""
@@ -89,25 +120,18 @@ class RegressionModel(BaseModel):
     ):
         super().__init__()
         self.linear = LazySimpleMLP(hidden_dim, 1, dropout)
+        self.epoch_metrics = self._stage_metrics(
+            {"mae": MeanAbsoluteError, "r2": R2Score, "spearman": SpearmanCorrCoef, "pearson": PearsonCorrCoef}
+        )
 
     def shared_step(self, batch: Data, batch_idx: int = 0, *, step_name: str = "train") -> dict:
         """Shared step for training and validation."""
         y_hat = self.forward(batch).squeeze(-1)
         y = batch.y
         loss = F.mse_loss(y_hat, y)
-        mae = metrics.mean_absolute_error(y_hat, y)
-        r2 = metrics.r2_score(y_hat, y)
-        spear = metrics.spearman_corrcoef(y_hat, y)
-        pears = metrics.pearson_corrcoef(y_hat, y)
-        metrics_dict = {
-            f"{step_name}/loss": loss,
-            f"{step_name}/mae": mae,
-            f"{step_name}/r2": r2,
-            f"{step_name}/spearman": spear,
-            f"{step_name}/pearson": pears,
-        }
-        self.log_dict(metrics_dict, batch_size=batch.num_graphs, add_dataloader_idx=False)
-        return dict(loss=loss, mae=mae, r2=r2, spear=spear, pears=pears)
+        self.log(f"{step_name}/loss", loss, batch_size=batch.num_graphs, add_dataloader_idx=False)
+        self._log_epoch_metrics(step_name, y_hat.float(), y.float(), batch.num_graphs)
+        return dict(loss=loss)
 
 
 class ClassificationModel(BaseModel):
@@ -122,26 +146,32 @@ class ClassificationModel(BaseModel):
         super().__init__()
         self.linear = LazySimpleMLP(hidden_dim, num_classes, dropout)
         self.num_classes = num_classes
+        self.epoch_metrics = self._stage_metrics(
+            {
+                # micro: plain fraction correct, as the functional accuracy logged before
+                "acc": lambda: MulticlassAccuracy(num_classes, average="micro"),
+                # weighted by class support: classes absent from a split (most of homology's 1195 in any test set)
+                # count 0 instead of dragging a macro average towards zero
+                "auc": lambda: MulticlassAUROC(num_classes, average="weighted"),
+                "mcc": lambda: MulticlassMatthewsCorrCoef(num_classes),
+            }
+        )
 
     def shared_step(self, batch: Data, batch_idx: int = 0, *, step_name: str = "train") -> dict:
         """Shared step for training and validation."""
         y_hat = self.forward(batch)
-        y = torch.tensor(batch.y, dtype=torch.long, device=self.device)
+        y = torch.as_tensor(batch.y, dtype=torch.long, device=self.device)
         loss = F.cross_entropy(y_hat, y)
-        acc = metrics.accuracy(y_hat, y, "multiclass", num_classes=self.num_classes)
-        auc = metrics.auroc(y_hat, y, "multiclass", num_classes=self.num_classes)
-        mcc = metrics.matthews_corrcoef(y_hat, y, "multiclass", num_classes=self.num_classes)
-        metrics_dict = {
-            f"{step_name}/loss": loss,
-            f"{step_name}/acc": acc,
-            f"{step_name}/auc": auc,
-            f"{step_name}/mcc": mcc,
-        }
-        self.log_dict(metrics_dict, batch_size=batch.num_graphs, add_dataloader_idx=False)
-        return dict(loss=loss, acc=acc, auc=auc, mcc=mcc)
+        self.log(f"{step_name}/loss", loss, batch_size=batch.num_graphs, add_dataloader_idx=False)
+        self._log_epoch_metrics(step_name, y_hat.float(), y, batch.num_graphs)
+        return dict(loss=loss)
 
 
 class HomologyModel(ClassificationModel):
+    """Fold classification with three test sets (fold / superfamily / family holdout), each with its own metrics."""
+
+    stages = ("train", "val", "test_fold", "test_superfamily", "test_family")
+
     def test_step(self, batch: Data, batch_idx: int, dataloader_idx: int) -> dict:
         """Test step."""
         step_name = ["fold", "superfamily", "family"]

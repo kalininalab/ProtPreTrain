@@ -285,8 +285,48 @@ def test_classification_step():
     loss = out["loss"]
     assert torch.isfinite(loss).item()
     assert loss.item() < 10.0
-    for key in ("acc", "auc", "mcc"):
-        assert torch.isfinite(out[key]).item(), key
+    epoch = model.stage_metrics("train").compute()
+    for key in ("train/acc", "train/auc", "train/mcc"):
+        assert torch.isfinite(epoch[key]).item(), key
+
+
+def test_downstream_metrics_are_epoch_level():
+    """Correlations/AUROC are computed over the whole split, not averaged over batches (splits can be sorted)."""
+    from scipy.stats import spearmanr
+    from torchmetrics.functional import auroc
+
+    from step.models.downstream import ClassificationModel, HomologyModel, RegressionModel
+
+    torch.manual_seed(0)
+    # Regression split sorted by target, in batches: within-batch Spearman is ~0, the dataset-level one is high
+    y = torch.sort(torch.randn(64)).values
+    model = RegressionModel(hidden_dim=8, dropout=0.0).eval()
+    preds = []
+    for chunk in y.split(16):
+        batch = Batch.from_data_list([Data(x=torch.randn(4), y=v) for v in chunk])
+        with torch.no_grad():
+            model.linear(torch.zeros(1, 4))  # materialise the lazy layer
+        # make the "prediction" the target plus noise, independent of the model
+        p = chunk + 0.5 * torch.randn_like(chunk)
+        model._log_epoch_metrics("test", p, chunk, len(chunk))
+        preds.append(p)
+    epoch = model.stage_metrics("test").compute()
+    assert abs(epoch["test/spearman"].item() - spearmanr(torch.cat(preds), y).statistic) < 1e-5
+
+    # Classification split sorted by label: one class per batch would make per-batch AUROC meaningless
+    clf = ClassificationModel(num_classes=3, hidden_dim=8, dropout=0.0)
+    labels = torch.arange(3).repeat_interleave(10)
+    logits = torch.randn(30, 3) + 2 * torch.nn.functional.one_hot(labels, 3)
+    for lg, lb in zip(logits.split(10), labels.split(10), strict=True):
+        clf._log_epoch_metrics("val", lg, lb, len(lb))
+    epoch = clf.stage_metrics("val").compute()
+    assert torch.isclose(epoch["val/auc"], auroc(logits, labels, "multiclass", num_classes=3, average="weighted"))
+    assert torch.isclose(epoch["val/acc"], (logits.argmax(1) == labels).float().mean())
+
+    # Homology keeps separate metrics per test set
+    homology = HomologyModel(num_classes=3)
+    for stage in ("train", "val", "test_fold", "test_superfamily", "test_family"):
+        assert homology.stage_metrics(stage).prefix == f"{stage}/"
 
 
 def test_mlflow_logging(tmp_path, monkeypatch):
