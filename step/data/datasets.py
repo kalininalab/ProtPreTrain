@@ -258,17 +258,21 @@ class StabilityDataset(DownstreamDataset):
 
     def _prepare_data(self, df: pd.DataFrame) -> List[Data]:
         data_list = []
-        ids = df["id"].tolist()
-        df.set_index("id", inplace=True)
+        # The TAPE train split reuses ~1.5k ids for 2-3 different designs (different sequences and scores) while the
+        # structure DB holds one structure per id, so each structure takes the row whose sequence matches it
+        rows = {name: group for name, group in df.groupby("id", sort=False)}
 
-        with foldcomp.open(self.raw_paths[3], ids=ids) as db:
+        with foldcomp.open(self.raw_paths[3], ids=list(rows)) as db:
             for name, pdb in tqdm(db):
                 struct = ProtStructure(pdb)
+                seq = struct.get_sequence()
+                group = rows[name]
+                match = group[group["primary"] == seq]
+                row = (match if len(match) else group).iloc[0]
                 graph = Data(**struct.get_graph())
-                graph["y"] = df.loc[name, "stability_score"][0]
-                if isinstance(graph["y"], list):
-                    graph["y"] = graph["y"][0]
-                graph["seq"] = struct.get_sequence()
+                score = row["stability_score"]
+                graph["y"] = score[0] if isinstance(score, list) else score
+                graph["seq"] = seq
                 data_list.append(graph)
         return data_list
 
