@@ -197,27 +197,27 @@ class DenoiseModel(LightningModule):
         batch.x = x
         return batch
 
-    def _shared_step(self, batch: Data, stage: str) -> torch.Tensor:
+    def losses(self, batch: Data) -> dict:
+        """Batch-mean ``loss``, ``noise_loss``, ``pred_loss`` (type CE) and ``pred_acc`` of one forward pass."""
         batch = self.forward(batch)
         noise_loss = F.mse_loss(batch.noise_pred, batch.noise)
         target = batch.orig_x if self.predict_all else batch.orig_x[batch.mask]
         pred_loss = F.cross_entropy(batch.type_pred, target)
         acc = metrics.functional.accuracy(batch.type_pred, target, task="multiclass", num_classes=20)
         loss = noise_loss * self.alpha + (1 - self.alpha) * pred_loss
+        return {"loss": loss, "noise_loss": noise_loss, "pred_loss": pred_loss, "pred_acc": acc}
+
+    def _shared_step(self, batch: Data, stage: str) -> torch.Tensor:
+        out = self.losses(batch)
         self.log_dict(
-            {
-                f"{stage}/loss": loss,
-                f"{stage}/noise_loss": noise_loss,
-                f"{stage}/pred_loss": pred_loss,
-                f"{stage}/pred_acc": acc,
-            },
+            {f"{stage}/{k}": v for k, v in out.items()},
             batch_size=batch.num_graphs,
             add_dataloader_idx=False,
             on_step=stage == "train",
             on_epoch=True,
             sync_dist=True,
         )
-        return loss
+        return out["loss"]
 
     def training_step(self, batch: Data, batch_idx: int, dataloader_idx: int = 0) -> torch.Tensor:
         """Denoising + masked type prediction loss."""

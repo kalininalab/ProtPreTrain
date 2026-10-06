@@ -28,6 +28,26 @@ Probe results from before this change are not comparable with later ones: rerun 
 - Homology AUROC (already fixed by the whole-split metrics commit, now verified end to end: test AUROC 0.80–0.96
   where per-batch macro AUROC gave ~0.005).
 
+## [pretrain-dynamics branch] — 2026-10-06 — downstream performance vs amount of pretraining
+
+### Added
+
+- `train.py --keep_ckpt_steps` (`KeepCheckpoints` callback): keep weights-only checkpoints
+  `<ckpt_dir>/step_<N>.ckpt` at chosen optimizer steps (integers, `final`, `every=N`, `double=N`), each with a sidecar
+  `step_<N>.json` holding the validation losses of exactly those weights (fixed noise, eval mode, whole val set),
+  the mean train loss over the last `--keep_ckpt_window` steps, epoch and lr; logged to MLflow as `kept/...` at that
+  step and listed in `--summary_json` under `kept_checkpoints`. Restart-safe through `last.ckpt`.
+- `scripts/benchmark.py dynamics pretrain|probe|analyze`: pretrain one config (default `+invariant`) with kept
+  checkpoints (default `double=500 final`), probe every kept checkpoint on every downstream dataset through the
+  unchanged finetune.py path, and write `dynamics.csv`, `dynamics_corr.csv` (Pearson/Spearman of each downstream
+  metric against the pretraining losses and log step), `dynamics.md` and plots. `hpc/runs/dynamics_analyze.txt`.
+- `benchmark.py --condor` splits queue files above 150 jobs (the per-submit limit) into `_part<i>` files.
+
+### Fixed
+
+- `train.py --ckpt_every_n_steps` stopped `last.ckpt` from being written at epoch end (Lightning's
+  `ModelCheckpoint` takes a single trigger), so a run shorter than N steps had no `last.ckpt` to resume from.
+
 ## [hpc branch] — 2026-10-04 — running on the conduit HTCondor cluster
 
 ### Added

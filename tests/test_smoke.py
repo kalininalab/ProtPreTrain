@@ -581,3 +581,151 @@ def test_embed_cache_key(tmp_path):
     )
     reseeded.setup("test")
     assert not torch.allclose(reseeded.test[0].x, first[0].x)
+
+
+def test_resolve_keep_steps():
+    """--keep_ckpt_steps tokens expand to sorted steps within the run; bad tokens are rejected."""
+    import argparse
+
+    from step.utils import keep_step_token, resolve_keep_steps
+
+    expect = [500, 1000, 2000, 4000, 8000, 16000, 32000, 64000, 77345]
+    assert resolve_keep_steps(["double=500", "final"], 77345) == expect
+    assert resolve_keep_steps(["every=4", "0", "3", "99"], 10) == [0, 3, 4, 8]
+    for bad in ["every=0", "double=x", "-1", "last"]:
+        with pytest.raises(argparse.ArgumentTypeError):
+            keep_step_token(bad)
+
+
+def _keep_fit(tmp_path, max_steps, ckpt_path=None):
+    """Fit the invariant test model for ``max_steps`` keeping steps 0, every 3rd and the last; return the callback."""
+    import lightning.pytorch as pl
+    from torch_geometric.loader import DataLoader
+
+    from step.utils import KeepCheckpoints
+
+    data = [make_graph(n, seed) for seed, n in enumerate((20, 13, 17, 9))]
+    keep = KeepCheckpoints(str(tmp_path), ["0", "every=3", "final"], window=4, val_loader_fn=lambda: keep_val_loader())
+    last = pl.callbacks.ModelCheckpoint(
+        dirpath=tmp_path, filename="last", every_n_train_steps=4, enable_version_counter=False
+    )
+    trainer = pl.Trainer(
+        accelerator="cpu",
+        max_steps=max_steps,
+        callbacks=[keep, last],
+        logger=False,
+        enable_progress_bar=False,
+        enable_model_summary=False,
+        default_root_dir=tmp_path,
+    )
+    trainer.fit(make_model("invariant"), DataLoader(data, batch_size=2), ckpt_path=ckpt_path)
+    return keep
+
+
+def keep_val_loader():
+    """Two-batch validation loader for the keep-checkpoint test."""
+    from torch_geometric.loader import DataLoader
+
+    return DataLoader([make_graph(n, seed) for seed, n in enumerate((11, 15, 8), start=10)], batch_size=2)
+
+
+def test_keep_checkpoints(tmp_path):
+    """Checkpoints are kept at the scheduled steps with val losses of exactly those weights, and survive a resume."""
+    import json
+
+    from step.utils import read_kept
+
+    # First attempt: a 4-step run keeps 0, 3 and its final step 4 (last.ckpt also written at step 4)
+    _keep_fit(tmp_path, 4)
+    first = {r["step"]: r for r in read_kept(str(tmp_path))}
+    assert sorted(first) == [0, 3, 4]
+
+    # The sidecar's val loss is the val loss of the kept weights (eval mode, whole loader, graph-weighted)
+    kept = DenoiseModel.load_from_checkpoint(tmp_path / "step_0000003.ckpt").eval()
+    with torch.no_grad():
+        per_batch = [(kept.losses(b), b.num_graphs) for b in keep_val_loader()]
+    expect = sum(float(o["noise_loss"]) * n for o, n in per_batch) / sum(n for _, n in per_batch)
+    assert first[3]["val/noise_loss"] == pytest.approx(expect, rel=1e-5)
+    assert first[3]["train/window_steps"] == 3 and first[0]["train/loss_window"] is None
+    assert set(first[3]) >= {"val/loss", "val/pred_loss", "val/pred_acc", "lr", "epoch", "planned_steps", "ckpt_path"}
+
+    # Resume from last.ckpt (step 4) with a longer run: earlier kept steps are not redone, later ones are added
+    mtime = (tmp_path / "step_0000003.ckpt").stat().st_mtime_ns
+    keep = _keep_fit(tmp_path, 7, ckpt_path=tmp_path / "last.ckpt")
+    assert [r["step"] for r in read_kept(str(tmp_path))] == [0, 3, 4, 6, 7]
+    assert (tmp_path / "step_0000003.ckpt").stat().st_mtime_ns == mtime
+    assert json.loads((tmp_path / "step_0000007.json").read_text())["planned_steps"] == 7
+    assert keep.saved >= {0, 3, 4, 6, 7}
+
+
+def _load_benchmark():
+    spec = importlib.util.spec_from_file_location("benchmark", Path(__file__).parents[1] / "scripts" / "benchmark.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_condor_split(tmp_path):
+    """Queue files beyond the per-submit job limit are split into parts."""
+    bench = _load_benchmark()
+    lines = [(f"store{i}.db", ["python", "x.py", "--i", str(i)]) for i in range(7)]
+    paths = bench.write_condor(str(tmp_path / "q.txt"), lines, max_jobs=3)
+    assert [p.name for p in paths] == ["q_part1.txt", "q_part2.txt", "q_part3.txt"]
+    assert [len(p.read_text().splitlines()) for p in paths] == [3, 3, 1]
+    assert bench.write_condor(str(tmp_path / "one.txt"), lines[:2])[0].name == "one.txt"
+
+
+def test_dynamics_probe_and_analyze(tmp_path):
+    """dynamics probe queues one job per kept checkpoint x dataset x head seed; analyze joins probes to val losses."""
+    import json
+    import subprocess
+    import sys
+
+    import pandas as pd
+
+    script = Path(__file__).parents[1] / "scripts" / "benchmark.py"
+    run = tmp_path / "dynamics" / "+invariant_s0"
+    (run / "checkpoints").mkdir(parents=True)
+    steps = [500, 1000, 2000, 4000]
+    for i, step in enumerate(steps):
+        stem = run / "checkpoints" / f"step_{step:07d}"
+        stem.with_suffix(".ckpt").write_bytes(b"")
+        record = {"step": step, "epoch": 0, "planned_steps": 4000, "val/loss": 2.0 - 0.3 * i}
+        record.update(
+            {"val/noise_loss": 1.0 - 0.2 * i, "val/pred_loss": 3.0 - 0.1 * i, "val/pred_acc": 0.1 + 0.02 * i}
+        )
+        record["train/loss_window"] = 2.1 - 0.3 * i
+        stem.with_suffix(".json").write_text(json.dumps(record))
+    # a checkpoint whose sidecar is not written yet is incomplete and not probed
+    (run / "checkpoints" / "step_0008000.ckpt").write_bytes(b"")
+
+    def bench(*argv):
+        cmd = [sys.executable, str(script), "--out", str(tmp_path), "dynamics", *argv]
+        return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+
+    queue = tmp_path / "q.txt"
+    probe = ["probe", "--datasets", "fluorescence", "stability", "--head_seeds", "0", "1", "--condor", str(queue)]
+    bench(*probe, "--", "--num_workers", "7")
+    lines = queue.read_text().splitlines()
+    assert len(lines) == len(steps) * 2 * 2
+    assert all("--num_workers 7" in line and "--model_source checkpoint" in line for line in lines)
+    assert any("probes/step_0000500/embeddings_fluorescence" in line for line in lines)
+
+    # Fake probe results that improve as the val loss falls; finished probes are not queued again
+    for i, step in enumerate(steps):
+        pdir = run / "probes" / f"step_{step:07d}"
+        for hs in (0, 1):
+            (pdir / f"probe_fluorescence_h{hs}.json").write_text(json.dumps({"test/spearman": 0.1 * i + 0.01 * hs}))
+    bench(*probe)
+    assert len(queue.read_text().splitlines()) == len(steps) * 2
+
+    bench("analyze")
+    out = tmp_path / "dynamics"
+    df = pd.read_csv(out / "dynamics.csv")
+    assert df["step"].tolist() == steps
+    assert df["fluorescence/test/spearman"].tolist() == pytest.approx([0.005, 0.105, 0.205, 0.305])
+    assert df["fluorescence/test/spearman_std"].notna().all()
+    corr = pd.read_csv(out / "dynamics_corr.csv").set_index(["dataset", "vs"])
+    assert corr.loc[("fluorescence", "val/noise_loss"), "spearman_rho"] == pytest.approx(-1.0)
+    for name in ("dynamics.md", "dynamics_vs_step.png", "dynamics_vs_loss.png"):
+        assert (out / name).exists()

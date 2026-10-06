@@ -87,6 +87,11 @@ commits below 80% docstring coverage, so new public functions/classes need a doc
   projection matrices — required for performer attention correctness.
 - Checkpoints are written by a plain Lightning `ModelCheckpoint` to `checkpoints/<mlflow run_id>/`; `--summary_json`
   records the path, and `finetune.py --model_source checkpoint --model <path>` consumes it. Nothing is uploaded.
+- `--keep_ckpt_steps` (`step/utils/checkpoints.py:KeepCheckpoints`) additionally keeps weights-only
+  `step_<N>.ckpt` at chosen steps, each with a `step_<N>.json` sidecar: val losses of exactly those weights (computed
+  by the callback on rank 0 with fixed noise `VAL_SEED`, separate from Lightning's epoch-end val, which redraws
+  noise), a windowed train loss, epoch, lr. The sidecar is written after the checkpoint, so it marks it complete.
+  Both go through `DenoiseModel.losses()`, which `_shared_step` also uses.
 - Loggers come from `step/utils/tracking.py:mlflow_logger()`, which creates the store and experiment under a file lock:
   concurrent first runs on a fresh SQLite store otherwise race on MLflow's schema migration and all fail.
   `train.py` logs hyperparameters only through `model.hparams` (every CLI arg arrives via `**kwargs`); also logging
@@ -144,3 +149,8 @@ other sources are sequence models and get `transform = pre_transform = None`.
   (`probe --dataset`, default homology); `--preset local` uses `data/e_coli_bench` (symlinked E. coli proteome),
   `--preset scale` is the cluster setup.
   Bench runs log to their own store, `<out>/mlflow.db` (experiment `step-bench`).
+  `benchmark.py dynamics pretrain|probe|analyze` is the pretraining-dynamics study (`DYNAMICS`): one config with
+  kept checkpoints in `<out>/dynamics/<config>_s<seed>/`, probes per kept step in `probes/step_<N>/`, results in
+  `<out>/dynamics/dynamics.{csv,md}`, `dynamics_corr.csv` and plots (experiment `step-dynamics`).
+- `--ckpt_every_n_steps` adds a *second* `last.ckpt` callback: one `ModelCheckpoint` accepts a single trigger, and
+  with `every_n_train_steps` alone it never saves at epoch end.
