@@ -101,8 +101,23 @@ condor_submit -a 'runfile=hpc/runs/bench_table.txt' hpc/cpu.sub   # -> bench/res
 Homology probes write `probe_h<seed>.{json,log,mlflow.db}` and cache embeddings in `<run>/embeddings/`; any other
 dataset writes `probe_<dataset>_h<seed>.*` and `<run>/embeddings_<dataset>/`. `table` reports every dataset that has
 results (metrics per dataset: `PROBE_METRICS` in the script). A run whose summary json already exists is skipped, so
-regenerating a queue file after failures only resubmits what is missing. `--preset scale` needs
+regenerating a queue file after failures only resubmits what is missing. `probe --head linear` runs a linear probe
+instead (`probe_lin_h<seed>`, `probe_<dataset>_lin_h<seed>`; `table --head linear` -> `results_linear.md`). `--preset scale` needs
 `prepare_afdb_rep_v4.txt` to have finished first.
+
+### Rerunning probes after a protocol change
+
+`probe` skips runs whose summary json exists, so move the old probe outputs aside first (a plain loop is fine on the
+submit node):
+
+```bash
+cd /home/s8ilsena/step/bench
+for d in */; do mkdir -p "$d/probe_v1"; find "$d" -maxdepth 1 -name 'probe_*' ! -name probe_v1 -exec mv {} "$d/probe_v1/" \; ; done
+```
+
+Pretrained-encoder embedding caches (`embeddings*/`) stay valid across probe-protocol changes that only touch the head
+or standardization. Random-init caches carry a `key.json`, and a cache written under another key (or none) is dropped
+and recomputed automatically.
 
 ## Restarts
 

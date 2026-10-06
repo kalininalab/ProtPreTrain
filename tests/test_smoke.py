@@ -454,3 +454,130 @@ def test_deeploc_split_matching():
     assert splits["test"][0] == dict(id="P4", label=8, location="Plastid", membrane="M", sequence="MLL")
     with pytest.raises(AssertionError):  # a label that disagrees with DeepLoc's location
         build.match_splits({"train": [("MKV", 0)], "valid": [], "test": []}, deeploc[:1])
+
+
+class ToyDownstreamDataset(list):
+    """Stand-in for a downstream InMemoryDataset: a few random 'proteins' per split, transforms applied eagerly."""
+
+    def __init__(self, split: str, transform=None, pre_transform=None, **kwargs):
+        sizes = {"train": 12, "val": 4, "test": 5}[split]
+        gen = torch.Generator().manual_seed(len(split))
+        graphs = []
+        for i in range(sizes):
+            n = 8 + i % 5
+            g = Data(x=torch.randint(0, 20, (n,), generator=gen), pos=torch.rand(n, 3, generator=gen) * 8, y=i % 3)
+            for t in (pre_transform, transform):
+                g = t(g) if t is not None else g
+            graphs.append(g)
+        super().__init__(graphs)
+
+
+def save_toy_checkpoint(path: Path, config: str = "invariant") -> Path:
+    """A Lightning-loadable checkpoint of a small DenoiseModel (radius 6, so the toy graphs have edges)."""
+    import lightning
+
+    model = make_model(config, radius=6)
+    torch.save(
+        {
+            "state_dict": model.state_dict(),
+            "hyper_parameters": dict(model.hparams),
+            "pytorch-lightning_version": lightning.__version__,
+        },
+        path,
+    )
+    return path
+
+
+def toy_datamodule(ckpt: Path, **kwargs):
+    """A DownstreamDataModule over ToyDownstreamDataset, embedding with the checkpoint at ``ckpt``."""
+    from step.data.datamodules import DownstreamDataModule
+
+    class ToyDataModule(DownstreamDataModule):
+        dataset_class = ToyDownstreamDataset
+
+    return ToyDataModule(
+        feature_extract_model=str(ckpt),
+        feature_extract_model_source="checkpoint",
+        num_workers=0,
+        batch_size=4,
+        **kwargs,
+    )
+
+
+def test_make_head():
+    """--head picks an MLP or a linear probe."""
+    from step.models.downstream import ClassificationModel, make_head
+
+    assert isinstance(make_head("linear", 8, 3, 0.0), torch.nn.LazyLinear)
+    assert isinstance(ClassificationModel(num_classes=3, head="linear").linear, torch.nn.LazyLinear)
+    with pytest.raises(ValueError):
+        make_head("transformer", 8, 3, 0.0)
+
+
+@pytest.mark.parametrize("config", ["invariant", "legacy_rw"])
+def test_random_init_control(tmp_path, config):
+    """The random-init encoder is seeded on its own, BatchNorm-calibrated, and shared by the fit and test stages."""
+    ckpt = save_toy_checkpoint(tmp_path / "toy.ckpt", config)
+    dms = []
+    for global_seed in (1, 2):
+        torch.manual_seed(global_seed)  # stands in for the head seed
+        dm = toy_datamodule(ckpt, random_init=True, random_init_seed=7, bn_calib_batches=2)
+        dm.setup("fit")
+        dms.append(dm)
+    a, b = (dict(dm.model.state_dict()) for dm in dms)
+    assert a.keys() == b.keys() and all(torch.equal(a[k], b[k]) for k in a)
+    pretrained = torch.load(ckpt, weights_only=False)["state_dict"]
+    weight = next(k for k in pretrained if k.endswith("weight") and pretrained[k].dim() == 2)
+    assert not torch.equal(a[weight], pretrained[weight])
+    bns = [m for m in dms[0].model.modules() if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)]
+    assert bns and all(not torch.allclose(bn.running_var, torch.ones_like(bn.running_var)) for bn in bns)
+    assert all(bn.num_batches_tracked == 2 and bn.momentum == 0.1 and not bn.training for bn in bns)
+    model = dms[0].model
+    dms[0].setup("test")
+    assert dms[0].model is model  # the test split is embedded by the same network as train
+
+
+def test_embedding_standardization(tmp_path):
+    """Embeddings are z-scored with the train split's statistics, and the cache holds them unstandardized."""
+    ckpt = save_toy_checkpoint(tmp_path / "toy.ckpt")
+    cache = tmp_path / "cache"
+    dm = toy_datamodule(ckpt, embed_cache=str(cache))
+    dm.setup("fit")
+    dm.setup("test")
+    train = torch.stack([d.x for d in dm.train])
+    assert torch.allclose(train.mean(0), torch.zeros(train.shape[1]), atol=1e-5)
+    assert torch.allclose(train.std(0), torch.ones(train.shape[1]), atol=1e-4)
+    mean, std = dm.embed_stats
+    raw_test = torch.stack([d.x for d in torch.load(cache / "test.pt", weights_only=False)])
+    assert torch.allclose(torch.stack([d.x for d in dm.test]), (raw_test - mean) / std, atol=1e-5)
+    # a test-only setup still standardizes with train statistics
+    test_only = toy_datamodule(ckpt, embed_cache=str(cache))
+    test_only.setup("test")
+    assert torch.allclose(torch.stack([d.x for d in test_only.test]), torch.stack([d.x for d in dm.test]), atol=1e-5)
+    raw = toy_datamodule(ckpt, standardize=False)
+    raw.setup("test")
+    assert torch.allclose(torch.stack([d.x for d in raw.test]), raw_test, atol=1e-5)
+
+
+def test_embed_cache_key(tmp_path):
+    """Pretrained caches without a key stay valid; random-init caches from another setup are recomputed."""
+    ckpt = save_toy_checkpoint(tmp_path / "toy.ckpt")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    sentinel = [Data(x=torch.full((4,), 3.0), y=0)]
+    for split in ("train", "val", "test"):
+        torch.save(sentinel, cache / f"{split}.pt")  # cache written before keys existed
+    dm = toy_datamodule(ckpt, embed_cache=str(cache), standardize=False)
+    dm.setup("fit")
+    assert torch.equal(dm.train[0].x, sentinel[0].x)
+
+    ri = toy_datamodule(ckpt, embed_cache=str(cache), standardize=False, random_init=True, bn_calib_batches=1)
+    ri.setup("fit")
+    assert len(ri.train) == 12 and not (cache / "test.pt").exists()  # stale test split dropped too
+    ri.setup("test")
+    first = torch.load(cache / "test.pt", weights_only=False)
+    reseeded = toy_datamodule(
+        ckpt, embed_cache=str(cache), standardize=False, random_init=True, random_init_seed=1, bn_calib_batches=1
+    )
+    reseeded.setup("test")
+    assert not torch.allclose(reseeded.test[0].x, first[0].x)

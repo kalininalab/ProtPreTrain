@@ -32,6 +32,22 @@ parser.add_argument(
 parser.add_argument(
     "--random_init", action="store_true", help="No-pretraining control: reinitialise the checkpoint model's weights"
 )
+parser.add_argument(
+    "--random_init_seed", type=int, default=0, help="Seed of the --random_init weights, independent of --seed"
+)
+parser.add_argument(
+    "--bn_calib_batches",
+    type=int,
+    default=50,
+    help="--random_init: train batches whose activations set the fresh BatchNorm running stats (0 = keep 0/1)",
+)
+parser.add_argument(
+    "--standardize",
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help="Z-score embedding features with the train split's mean/std before the head",
+)
+parser.add_argument("--head", type=str, default="mlp", choices=["mlp", "linear"], help="Head on frozen embeddings")
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--max_epochs", type=int, default=10000)
 parser.add_argument("--experiment", type=str, default=None, help="MLflow experiment name; defaults to the dataset")
@@ -48,14 +64,17 @@ pl.seed_everything(config.seed)
 logger = mlflow_logger(config.experiment or config.dataset)
 logger.log_hyperparams(vars(config))
 print(config)
+head_kwargs = dict(hidden_dim=config.hidden_dim, dropout=config.dropout, head=config.head)
 if config.dataset == "homology":
-    model = HomologyModel(hidden_dim=config.hidden_dim, dropout=config.dropout, num_classes=1195)
+    model = HomologyModel(num_classes=1195, **head_kwargs)
 elif config.dataset == "deeploc":
-    model = ClassificationModel(hidden_dim=config.hidden_dim, dropout=config.dropout, num_classes=10)
+    model = ClassificationModel(num_classes=10, **head_kwargs)
 elif config.dataset == "dti":
+    if config.head != "mlp":
+        parser.error("--head linear is not supported for dti")
     model = DTIModel(hidden_dim=config.hidden_dim, dropout=config.dropout)
 else:
-    model = RegressionModel(hidden_dim=config.hidden_dim, dropout=config.dropout)
+    model = RegressionModel(**head_kwargs)
 data = {
     "fluorescence": FluorescenceDataModule,
     "stability": StabilityDataModule,
@@ -70,6 +89,9 @@ data = {
     ablation=config.ablation,
     ablation_maskfrac=config.ablation_maskfrac,
     random_init=config.random_init,
+    random_init_seed=config.random_init_seed,
+    bn_calib_batches=config.bn_calib_batches,
+    standardize=config.standardize,
     embed_cache=config.embed_cache,
 )
 trainer = pl.Trainer(

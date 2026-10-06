@@ -3,6 +3,31 @@
 All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [probe-fixes] — 2026-10-06 — frozen-embedding probe protocol
+
+Probe results from before this change are not comparable with later ones: rerun them (see `hpc/README.md`).
+
+### Added
+
+- `finetune.py --head mlp|linear`: a linear probe besides the MLP head. `benchmark.py probe|table --head linear`
+  writes `probe_lin_h<seed>` / `probe_<dataset>_lin_h<seed>` and `results_linear.{csv,md}`.
+- `finetune.py --standardize` (default on): embeddings are z-scored per feature with the train split's mean/std
+  before the head. Caches keep raw embeddings, so existing pretrained-encoder caches stay valid.
+- `finetune.py --random_init_seed`, `--bn_calib_batches`; `benchmark.py probe` passes the pretraining seed as the
+  random-init seed.
+
+### Fixed
+
+- `--random_init` embedded the test split(s) with a different random network than train/val: `setup("fit")` and
+  `setup("test")` each rebuilt the encoder from the global RNG. The encoder is now loaded once per datamodule, and
+  random weights come from `--random_init_seed`, so all head seeds also share one network.
+- `--random_init` encoders kept fresh BatchNorm stats (mean 0 / var 1): in eval mode every BatchNorm was the
+  identity and activations grew through the residual blocks (embedding magnitude ~110 vs ~0.4 pretrained). Their
+  running stats are now set from train batches before embedding.
+- Random-init embedding caches written before this change are recomputed (`key.json` in the cache dir).
+- Homology AUROC (already fixed by the whole-split metrics commit, now verified end to end: test AUROC 0.80–0.96
+  where per-batch macro AUROC gave ~0.005).
+
 ## [hpc branch] — 2026-10-04 — running on the conduit HTCondor cluster
 
 ### Added

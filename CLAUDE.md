@@ -96,7 +96,9 @@ commits below 80% docstring coverage, so new public functions/classes need a doc
 
 The key design point: the encoder is **never** fine-tuned. `DownstreamDataModule.setup()` builds the dataset,
 then `embed_splits()` runs the frozen feature extractor over every split up front and replaces the split with a
-plain list of `Data` objects whose `x` is the embedding. Only a small MLP head then trains.
+plain list of `Data` objects whose `x` is the embedding, then z-scores each embedding feature with the train split's
+mean/std (`--no-standardize` turns it off; caches hold raw embeddings). Only a small head then trains: an MLP, or a
+linear probe with `--head linear`.
 `feature_extract_model_source` selects the extractor (local `checkpoint` = our `DenoiseModel`,
 plus `huggingface`, `ankh`, `prostt5` baselines) and *also* controls whether graph transforms are applied at all — the
 other sources are sequence models and get `transform = pre_transform = None`.
@@ -112,6 +114,11 @@ other sources are sequence models and get `transform = pre_transform = None`.
   accessions recovered by sequence matching, AlphaFold structures from the `afdb_swissprot_v4` foldcomp DB stored as
   foldcomp bytes in `deeploc_structures.h5`). Proteins without an AlphaFold structure are left out.
 - Heads use `LazySimpleMLP` (LazyLinear) so embedding dimension does not need to be known in advance.
+- `--random_init` (no-pretraining control) builds the checkpoint's architecture with weights seeded by
+  `--random_init_seed` (not the head seed), then sets its BatchNorm running stats from `--bn_calib_batches` train
+  batches: fresh stats (mean 0, var 1) make eval-mode BatchNorm the identity, and embeddings blow up to ~100. The
+  encoder is loaded once per datamodule, so fit and test embed with the same network. `--embed_cache` dirs carry a
+  `key.json` (random-init seed/calibration, `EMBED_CACHE_VERSION`); a mismatching key drops every cached split.
 - `--ablation sequence|structure` injects `SequenceOnly`/`StructureOnly` transforms to zero out one modality,
   and only applies to our `checkpoint` model.
 
