@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 
-from step.utils import str_to_bool
+from step.utils import keep_step_token, str_to_bool
 
 parser = ArgumentParser()
 parser.add_argument("--dataset", type=str, default="afdb_rep_v4")
@@ -16,6 +16,17 @@ parser.add_argument(
     type=int,
     default=0,
     help="Also refresh <ckpt_dir>/last.ckpt every N steps (0: epoch end only)",
+)
+parser.add_argument(
+    "--keep_ckpt_steps",
+    type=keep_step_token,
+    nargs="*",
+    default=[],
+    help="Keep weights-only checkpoints <ckpt_dir>/step_<N>.ckpt (+ .json with val losses) at these optimizer steps: "
+    "integers, 'final', 'every=N' (N, 2N, ...) or 'double=N' (N, 2N, 4N, ...), e.g. 'double=500 final'",
+)
+parser.add_argument(
+    "--keep_ckpt_window", type=int, default=200, help="Steps averaged into a kept checkpoint's train/loss_window"
 )
 parser.add_argument("--hidden_dim", type=int, default=512)
 parser.add_argument("--pe_dim", type=int, default=64)
@@ -93,7 +104,7 @@ import torch_geometric as pyg
 from step.data import FoldCompDataModule, MaskType, MaskTypeAnkh, MaskTypeBERT, PosNoise
 from step.data.transforms import SequenceOnly, graph_transforms
 from step.models import DenoiseModel
-from step.utils import mlflow_logger, progress_bar
+from step.utils import KeepCheckpoints, mlflow_logger, progress_bar, read_kept
 
 # Explicitly specify the process group backend if you choose to
 
@@ -153,14 +164,32 @@ checkpoint = pl.callbacks.ModelCheckpoint(
     dirpath=ckpt_dir,
     save_on_train_epoch_end=True,
 )
-# Latest state, overwritten in place: what --resume auto restarts from
-latest = pl.callbacks.ModelCheckpoint(
-    dirpath=ckpt_dir,
-    filename="last",
-    every_n_train_steps=args.ckpt_every_n_steps or None,
-    save_on_train_epoch_end=True,
-    enable_version_counter=False,
-)
+# Latest state, overwritten in place: what --resume auto restarts from. ModelCheckpoint takes one trigger, and with
+# every_n_train_steps alone it never saves at epoch end, so the step-based refresh is a second callback.
+latest = [
+    pl.callbacks.ModelCheckpoint(
+        dirpath=ckpt_dir, filename="last", save_on_train_epoch_end=True, enable_version_counter=False
+    )
+]
+if args.ckpt_every_n_steps:
+    latest.append(
+        pl.callbacks.ModelCheckpoint(
+            dirpath=ckpt_dir,
+            filename="last",
+            every_n_train_steps=args.ckpt_every_n_steps,
+            enable_version_counter=False,
+        )
+    )
+callbacks = [
+    checkpoint,
+    *latest,
+    pl.callbacks.LearningRateMonitor(logging_interval="step"),
+    progress_bar(),
+    pl.callbacks.RichModelSummary(),
+]
+if args.keep_ckpt_steps:
+    # Pretraining-dynamics study: probe these checkpoints downstream (scripts/benchmark.py dynamics)
+    callbacks.append(KeepCheckpoints(ckpt_dir, args.keep_ckpt_steps, window=args.keep_ckpt_window))
 trainer = pl.Trainer(
     accelerator="auto",
     max_epochs=args.max_epochs,
@@ -171,13 +200,7 @@ trainer = pl.Trainer(
     # the dynamic batch sampler shards across ranks itself
     use_distributed_sampler=not args.batch_sampling,
     num_nodes=args.num_nodes,
-    callbacks=[
-        checkpoint,
-        latest,
-        pl.callbacks.LearningRateMonitor(logging_interval="step"),
-        progress_bar(),
-        pl.callbacks.RichModelSummary(),
-    ],
+    callbacks=callbacks,
     logger=logger,
     limit_val_batches=1.0 if args.val_size else 0,
     # profiler="pytorch"
@@ -196,5 +219,7 @@ if trainer.is_global_zero:
     if args.summary_json:
         summary = {k: v.item() for k, v in trainer.callback_metrics.items()}
         summary.update(compute, ckpt_path=checkpoint.best_model_path, run_id=logger.run_id)
+        if args.keep_ckpt_steps:
+            summary["kept_checkpoints"] = read_kept(ckpt_dir)  # includes steps kept by earlier (resumed) attempts
         with open(args.summary_json, "w") as f:
             json.dump(summary, f, indent=2)

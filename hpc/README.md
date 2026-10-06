@@ -78,6 +78,7 @@ pretraining run: `-a 'request_GPUs=4' -a 'request_CPUs=32' -a 'request_memory=12
 | `aggregate.txt` | cpu.sub | `scripts/aggregate_results.py` over every store -> `results.csv` |
 | `bench_table.txt` | cpu.sub | `scripts/benchmark.py table` |
 | `merge_mlflow.txt` | cpu.sub | merge every store into `merged.db` for `mlflow ui` |
+| `dynamics_analyze.txt` | cpu.sub | `scripts/benchmark.py dynamics analyze` (see Pretraining dynamics) |
 
 ### The benchmark matrix
 
@@ -104,11 +105,45 @@ results (metrics per dataset: `PROBE_METRICS` in the script). A run whose summar
 regenerating a queue file after failures only resubmits what is missing. `--preset scale` needs
 `prepare_afdb_rep_v4.txt` to have finished first.
 
+### Pretraining dynamics
+
+How does downstream performance grow with pretraining, and does it track the pretraining loss? `benchmark.py
+dynamics` pretrains one config (`+invariant` by default, `--config`) with checkpoints kept at log-spaced steps
+(`--keep_steps`, default `double=500 final`: 500, 1k, 2k, ..., 64k and 77,345 at the scale preset, 9 checkpoints),
+then probes every kept checkpoint on every downstream dataset.
+
+```bash
+cd /home/s8ilsena/step/ProtPreTrain
+python3 scripts/benchmark.py --out /home/s8ilsena/step/bench dynamics pretrain --seeds 0 \
+    --condor hpc/runs/bench_dynamics_pretrain.txt -- --num_workers 7
+condor_submit -a 'runfile=hpc/runs/bench_dynamics_pretrain.txt' hpc/gpu.sub      # 1 job per seed, ~5 h
+# any time after the first checkpoints appear; re-run later for the rest (finished probes are skipped):
+python3 scripts/benchmark.py --out /home/s8ilsena/step/bench dynamics probe \
+    --condor hpc/runs/bench_dynamics_probe.txt -- --num_workers 7
+condor_submit -a 'runfile=hpc/runs/bench_dynamics_probe.txt' hpc/gpu.sub         # 9 x 4 x 3 = 108 jobs per seed
+condor_submit -a 'runfile=hpc/runs/dynamics_analyze.txt' hpc/cpu.sub             # -> bench/dynamics/dynamics.md
+```
+
+- Each kept checkpoint is `checkpoints/step_<N>.ckpt` (weights only, ~130 MB at 32M params; ~1.2 GB per seed) plus
+  `step_<N>.json`: validation losses of those weights (fixed noise, so steps compare cleanly), mean train loss over
+  the last 200 steps, epoch, lr. A checkpoint counts once its json exists. MLflow has the same values as `kept/...`.
+- Probes of step N live in `<run>/probes/step_<N>/` (`probe_*.json`, logs, stores, one embedding cache per dataset,
+  a few hundred MB per step). `--datasets`, `--head_seeds` and `--steps` narrow the queue.
+- More than 150 jobs (e.g. 3 seeds: 324) are split into `bench_dynamics_probe_part<i>.txt`; submit each.
+- Don't regenerate the probe file while its jobs are still queued: unfinished probes have no json yet, so they would
+  be queued twice.
+- `analyze` writes `dynamics.csv` (one row per seed x step: pretraining losses, probe mean/std over head seeds),
+  `dynamics_corr.csv` (Pearson and Spearman of each probe metric against `val/loss`, `val/noise_loss`,
+  `val/pred_loss`, `val/pred_acc`, the train loss and log10 step, pooled over seeds), `dynamics.md`,
+  `dynamics_vs_step.png` and `dynamics_vs_loss.png`.
+
 ## Restarts
 
 Pretraining queued through these files uses `--ckpt_dir <run>/checkpoints --resume auto`: `last.ckpt` is refreshed at
 every epoch end (and every `--ckpt_every_n_steps` steps if set), and a rerun of the same command continues from it in
-the same MLflow run. `gpu.sub` sets `max_retries = 2`, so a job that crashes is restarted automatically; one that is
+the same MLflow run. Kept checkpoints (`--keep_ckpt_steps`) resume too: steps already kept are not redone, and a step
+reached again after a crash is rewritten, checkpoint and json together. The rerun must be the *same* command: MLflow
+refuses a changed hyperparameter (e.g. `--max_epochs`) on the continued run. `gpu.sub` sets `max_retries = 2`, so a job that crashes is restarted automatically; one that is
 removed can simply be resubmitted.
 
 ## Results and MLflow

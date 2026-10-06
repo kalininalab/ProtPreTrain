@@ -7,6 +7,7 @@ Subcommands (run from the repo root):
     python scripts/benchmark.py probe --head_seeds 0 1 2  # frozen-embedding homology probe of every finished run
     python scripts/benchmark.py probe --dataset stability  # same for another downstream dataset (PROBE_METRICS)
     python scripts/benchmark.py table                  # bench/results.csv + bench/results.md, every probed dataset
+    python scripts/benchmark.py dynamics pretrain|probe|analyze  # probes of checkpoints kept during pretraining
 
 Every run lives in ``<out>/<config>_s<seed>/`` (``pretrain.json``, ``pretrain.log``, ``checkpoints/``, and per head
 seed ``probe_h<head_seed>.json`` + ``.log`` for homology, ``probe_<dataset>_h<head_seed>.json`` + ``.log`` for any
@@ -121,6 +122,18 @@ PROBE_METRICS = {
     "deeploc": {"test/acc": "deeploc acc"},  # 10-class subcellular localisation
 }
 EXPERIMENT = "step-bench"
+MAX_CONDOR_JOBS = 150  # SUBMIT_REQUIREMENT_MaxMaterializations on conduit
+
+# Pretraining-dynamics study (``dynamics`` subcommand): one config pretrained with checkpoints kept along the way,
+# each kept checkpoint probed downstream. Lives in <out>/dynamics/<config>_s<seed>/.
+DYNAMICS = {
+    "config": "+invariant",
+    "keep_steps": ["double=500", "final"],  # 500, 1k, 2k, ..., 64k and the last step (77,345 at the scale preset)
+    "ckpt_every_n_steps": 2000,  # last.ckpt refresh: a preempted job loses at most this many steps
+    "experiment": "step-dynamics",
+}
+# Pretraining quantities correlated with downstream metrics (keys of each kept checkpoint's sidecar json)
+DYNAMICS_PRETRAIN = ["val/loss", "val/noise_loss", "val/pred_loss", "val/pred_acc", "train/loss_window"]
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -157,13 +170,25 @@ def run_cmd(cmd: list, log: Path, dry_run: bool, tracking_db: Path) -> int:
     return rc
 
 
-def write_condor(path: str, lines: list) -> None:
-    """Write ``<store>, <command>`` lines for hpc/gpu.sub; condor splits on commas, so commands must not contain any."""
+def write_condor(path: str, lines: list, max_jobs: int = MAX_CONDOR_JOBS) -> list:
+    """Write ``<store>, <command>`` lines for hpc/gpu.sub; condor splits on commas, so commands must not contain any.
+
+    More than ``max_jobs`` lines (the per-submit limit on conduit) go to ``<stem>_part<i><suffix>`` files, each
+    submitted separately. Returns the paths written.
+    """
     for _store, cmd in lines:
         if "," in " ".join(cmd):
             sys.exit(f"command contains a comma, which condor would split on: {' '.join(cmd)}")
-    Path(path).write_text("".join(f"{store}, {' '.join(cmd)}\n" for store, cmd in lines))
-    print(f"wrote {len(lines)} jobs to {path}; submit with: condor_submit -a 'runfile={path}' hpc/gpu.sub")
+    path = Path(path)
+    chunks = [lines[i : i + max_jobs] for i in range(0, len(lines), max_jobs)] or [[]]
+    if len(chunks) == 1:
+        paths = [path]
+    else:
+        paths = [path.with_name(f"{path.stem}_part{i + 1}{path.suffix}") for i in range(len(chunks))]
+    for p, chunk in zip(paths, chunks, strict=True):
+        p.write_text("".join(f"{store}, {' '.join(cmd)}\n" for store, cmd in chunk))
+        print(f"wrote {len(chunk)} jobs to {p}; submit with: condor_submit -a 'runfile={p}' hpc/gpu.sub")
+    return paths
 
 
 def run_all(jobs: list, n_parallel: int) -> list:
@@ -458,6 +483,284 @@ def cmd_table(args, _passthrough):
     print(f"wrote {out / 'results.csv'} and {out / 'results.md'}")
 
 
+def _kept(d: Path) -> list:
+    """(step, checkpoint path, sidecar record) for every checkpoint kept in run dir ``d`` (complete ones only).
+
+    train.py writes a kept checkpoint's sidecar json after the checkpoint itself, so a sidecar marks it complete.
+    The checkpoint is located next to its sidecar rather than by the recorded absolute path, so moved run dirs work.
+    """
+    out = []
+    for sidecar in sorted((d / "checkpoints").glob("step_*.json")):
+        record = json.loads(sidecar.read_text())
+        ckpt = sidecar.with_suffix(".ckpt")
+        if ckpt.exists():
+            out.append((record["step"], ckpt, record))
+    return out
+
+
+def dynamics_runs(args) -> list:
+    """Run dirs of the dynamics study for ``--config``, sorted by seed."""
+    dyn = Path(args.out).resolve() / "dynamics"
+    runs = [d for d in dyn.glob(f"{glob_escape(args.config)}_s*") if d.is_dir()]
+    return sorted(runs, key=lambda d: int(d.name.rsplit("_s", 1)[1]))
+
+
+def cmd_dynamics(args, passthrough):
+    """Pretraining-dynamics study: keep checkpoints during pretraining, probe each, relate probes to pretraining loss.
+
+    ``pretrain`` queues train.py with ``--keep_ckpt_steps``; ``probe`` queues finetune.py for every kept checkpoint
+    found so far x dataset x head seed (re-run it as more checkpoints appear; finished probes are skipped);
+    ``analyze`` writes dynamics.csv, dynamics_corr.csv, dynamics.md and plots into ``<out>/dynamics``.
+    """
+    {"pretrain": dynamics_pretrain, "probe": dynamics_probe, "analyze": dynamics_analyze}[args.stage](
+        args, passthrough
+    )
+
+
+def dynamics_pretrain(args, passthrough):
+    """One restart-safe train.py job per seed, keeping checkpoints at ``--keep_steps``."""
+    cfg = select_configs([args.config])[0]
+    dyn = Path(args.out).resolve() / "dynamics"
+    python = "python" if args.condor else sys.executable
+    jobs, condor = [], []
+    for seed in args.seeds:
+        d = run_dir(dyn, cfg["name"], seed)
+        summary = d / "pretrain.json"
+        if summary.exists():
+            print(f"skip {d.name}: {summary.name} exists")
+            continue
+        cmd = (
+            [python, "train.py"]
+            + to_cli(PRESETS[args.preset])
+            + to_cli(cfg)
+            + ["--seed", str(seed), "--experiment", DYNAMICS["experiment"], "--summary_json", str(summary)]
+            + ["--ckpt_dir", str(d / "checkpoints"), "--resume", "auto"]
+            + ["--ckpt_every_n_steps", str(DYNAMICS["ckpt_every_n_steps"])]
+            + ["--keep_ckpt_steps", *args.keep_steps]
+            + passthrough
+        )
+        if not args.dry_run:
+            d.mkdir(parents=True, exist_ok=True)
+            config = {"preset": args.preset, **cfg, "seed": seed, "keep_steps": args.keep_steps}
+            (d / "config.json").write_text(json.dumps(config, indent=2))
+        condor.append((d / "pretrain.mlflow.db", cmd))
+        jobs.append(lambda cmd=cmd, d=d: run_cmd(cmd, d / "pretrain.log", args.dry_run, dyn / "mlflow.db"))
+    if args.condor:
+        write_condor(args.condor, condor)
+        return
+    rcs = run_all(jobs, args.jobs)
+    print(f"dynamics pretrain: {len(rcs)} launched, {sum(rc != 0 for rc in rcs)} failed")
+
+
+def dynamics_probe(args, passthrough):
+    """finetune.py for every kept checkpoint x dataset x head seed that has no summary json yet.
+
+    Probes of checkpoint ``step_<N>`` live in ``<run>/probes/step_<N>/`` with one embedding cache per dataset there.
+    """
+    dyn = Path(args.out).resolve() / "dynamics"
+    python = "python" if args.condor else sys.executable
+    jobs, condor = [], []
+    for d in dynamics_runs(args):
+        for step, ckpt, _ in _kept(d):
+            if args.steps and step not in args.steps:
+                continue
+            pd = d / "probes" / ckpt.stem
+            for ds, hs in itertools.product(args.datasets, args.head_seeds):
+                stem = probe_stem(ds, hs)
+                summary = pd / f"{stem}.json"
+                if summary.exists():
+                    continue
+                cmd = (
+                    [python, "finetune.py"]
+                    + to_cli({"dataset": ds, "max_epochs": args.max_epochs})
+                    + ["--model_source", "checkpoint", "--model", str(ckpt), "--seed", str(hs)]
+                    + ["--experiment", DYNAMICS["experiment"], "--summary_json", str(summary)]
+                    + ["--embed_cache", str(embed_cache(pd, ds))]
+                    + passthrough
+                )
+                if not args.dry_run:
+                    pd.mkdir(parents=True, exist_ok=True)
+                condor.append((pd / f"{stem}.mlflow.db", cmd))
+                jobs.append(
+                    lambda cmd=cmd, pd=pd, stem=stem: run_cmd(cmd, pd / f"{stem}.log", args.dry_run, dyn / "mlflow.db")
+                )
+    if not jobs:
+        print("dynamics probe: nothing to do (no kept checkpoints yet, or every probe has its json)")
+        return
+    if args.condor:
+        write_condor(args.condor, condor)
+        return
+    # The first probe of each dataset processes data/<dataset>; run one alone before the parallel rest
+    rcs = [jobs[0]()] + run_all(jobs[1:], args.jobs)
+    print(f"dynamics probe: {len(rcs)} launched, {sum(rc != 0 for rc in rcs)} failed")
+
+
+def md_table(df, digits: int) -> str:
+    """Markdown table of a DataFrame; floats to ``digits`` decimals, missing values as ``–``."""
+
+    def cell(v):
+        if v is None or (isinstance(v, float) and v != v):
+            return "–"
+        return f"{v:.{digits}f}" if isinstance(v, float) else str(v)
+
+    lines = ["| " + " | ".join(map(str, df.columns)) + " |", "|---" * len(df.columns) + "|"]
+    lines += ["| " + " | ".join(cell(v) for v in row) + " |" for row in df.itertuples(index=False)]
+    return "\n".join(lines)
+
+
+def dynamics_table(args):
+    """One row per (run, kept step): sidecar pretraining metrics and probe metrics (mean/std over head seeds)."""
+    import numpy as np
+    import pandas as pd
+
+    rows = []
+    for d in dynamics_runs(args):
+        name, seed = d.name.rsplit("_s", 1)
+        for step, ckpt, record in _kept(d):
+            row = {"config": name, "seed": int(seed), "step": step, "epoch": record.get("epoch")}
+            row["final"] = step == record.get("planned_steps")
+            row.update({k: record.get(k) for k in ["lr", *DYNAMICS_PRETRAIN]})
+            pdir = d / "probes" / ckpt.stem
+            for ds, metrics in PROBE_METRICS.items():
+                probes = [json.loads(f.read_text()) for f in sorted(pdir.glob(f"{probe_stem(ds, '*')}.json"))]
+                row[f"{ds}/n_head_seeds"] = len(probes)
+                for m in metrics:
+                    vals = [p[m] for p in probes if p.get(m) is not None]
+                    row[f"{ds}/{m}"] = float(np.mean(vals)) if vals else None
+                    row[f"{ds}/{m}_std"] = float(np.std(vals, ddof=1)) if len(vals) > 1 else None
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def dynamics_correlations(df):
+    """Pearson and Spearman correlation of every downstream metric with every pretraining quantity and log10(step).
+
+    Points are (run, kept step) pairs pooled over pretraining seeds; a pair needs both values. n < 3 gives NaN.
+    """
+    import numpy as np
+    import pandas as pd
+    from scipy import stats
+
+    df = df.assign(log10_step=np.log10(df["step"].where(df["step"] > 0)))
+    rows = []
+    for ds, metrics in PROBE_METRICS.items():
+        for m, label in metrics.items():
+            col = f"{ds}/{m}"
+            if col not in df or df[col].isna().all():
+                continue
+            for x in [*DYNAMICS_PRETRAIN, "log10_step"]:
+                pair = df[[x, col]].apply(pd.to_numeric, errors="coerce").dropna()
+                r = {"dataset": ds, "metric": m, "label": label, "vs": x, "n": len(pair)}
+                if len(pair) >= 3 and pair[x].nunique() > 1 and pair[col].nunique() > 1:
+                    r["pearson_r"], r["pearson_p"] = stats.pearsonr(pair[x], pair[col])
+                    r["spearman_rho"], r["spearman_p"] = stats.spearmanr(pair[x], pair[col])
+                rows.append(r)
+    return pd.DataFrame(rows)
+
+
+def dynamics_plots(df, out: Path) -> list:
+    """dynamics_vs_step.png (every metric against step, log x) and dynamics_vs_loss.png (probes against val losses)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from scipy import stats
+
+    probe_cols = [
+        (f"{ds}/{m}", label)
+        for ds, metrics in PROBE_METRICS.items()
+        for m, label in metrics.items()
+        if f"{ds}/{m}" in df and df[f"{ds}/{m}"].notna().any()
+    ]
+    pre_cols = [(c, c) for c in ["val/noise_loss", "val/pred_loss", "val/pred_acc"] if df[c].notna().any()]
+    paths = []
+
+    panels = pre_cols + probe_cols
+    ncol = min(3, len(panels))
+    nrow = -(-len(panels) // ncol)
+    fig, axes = plt.subplots(nrow, ncol, figsize=(4.2 * ncol, 3.2 * nrow), squeeze=False)
+    for ax, (col, label) in zip(axes.flat, panels, strict=False):
+        for seed, g in df.sort_values("step").groupby("seed"):
+            std = g.get(f"{col}_std")
+            ax.errorbar(g["step"], g[col], yerr=std, marker="o", ms=3, capsize=2, label=f"seed {seed}")
+        positive = df["step"][df["step"] > 0]
+        if len(positive):
+            # symlog keeps a step-0 checkpoint on the axis; linear below the first positive step
+            ax.set_xscale("symlog", linthresh=positive.min()) if (df["step"] == 0).any() else ax.set_xscale("log")
+        ax.set_title(label, fontsize=10)
+        ax.set_xlabel("pretraining step")
+        ax.grid(alpha=0.3)
+    for ax in axes.flat[len(panels) :]:
+        ax.set_visible(False)
+    axes.flat[0].legend(fontsize=8)
+    fig.tight_layout()
+    paths.append(out / "dynamics_vs_step.png")
+    fig.savefig(paths[-1], dpi=150)
+    plt.close(fig)
+
+    xs = [c for c in ["val/noise_loss", "val/pred_loss", "val/loss"] if df[c].notna().any()]
+    if probe_cols and xs:
+        fig, axes = plt.subplots(
+            len(probe_cols), len(xs), figsize=(3.8 * len(xs), 3.0 * len(probe_cols)), squeeze=False
+        )
+        color = np.log10(df["step"].clip(lower=1))
+        for i, (col, label) in enumerate(probe_cols):
+            for j, x in enumerate(xs):
+                ax = axes[i, j]
+                sc = ax.scatter(df[x], df[col], c=color, cmap="viridis", s=18)
+                pair = df[[x, col]].dropna()
+                if len(pair) >= 3 and pair[x].nunique() > 1 and pair[col].nunique() > 1:
+                    rho = stats.spearmanr(pair[x], pair[col])[0]
+                    ax.set_title(f"Spearman ρ = {rho:.2f} (n={len(pair)})", fontsize=9)
+                ax.set_xlabel(x)
+                ax.set_ylabel(label if j == 0 else "")
+                ax.grid(alpha=0.3)
+        fig.colorbar(sc, ax=axes, label="log10 step", shrink=0.6)
+        paths.append(out / "dynamics_vs_loss.png")
+        fig.savefig(paths[-1], dpi=150, bbox_inches="tight")
+        plt.close(fig)
+    return paths
+
+
+def dynamics_analyze(args, _passthrough):
+    """Write dynamics.csv, dynamics_corr.csv, dynamics.md and the plots for ``--config``'s runs."""
+    import pandas as pd
+
+    out = Path(args.out).resolve() / "dynamics"
+    df = dynamics_table(args)
+    if df.empty:
+        sys.exit(f"no kept checkpoints under {out}/{args.config}_s*/checkpoints")
+    df = df.sort_values(["seed", "step"])
+    df.to_csv(out / "dynamics.csv", index=False)
+    corr = dynamics_correlations(df)
+    corr.to_csv(out / "dynamics_corr.csv", index=False)
+    plots = dynamics_plots(df, out)
+
+    probe_cols = [c for c in df.columns if "/" in c and c.split("/")[0] in PROBE_METRICS and "n_head" not in c]
+    show = ["seed", "step", "val/noise_loss", "val/pred_loss", "val/pred_acc"]
+    show += [c for c in probe_cols if not c.endswith("_std") and df[c].notna().any()]
+    md = ["## Kept checkpoints", "", md_table(df[show], 3), ""]
+    if not corr.empty and "spearman_rho" in corr:
+        wide = corr.pivot_table(index="label", columns="vs", values="spearman_rho", sort=False)
+        n = corr.groupby("label", sort=False)["n"].max()
+        md += [
+            "## Spearman ρ: downstream metric vs pretraining quantity",
+            "",
+            "Points are kept checkpoints pooled over pretraining seeds (n per row). A negative ρ against a loss means "
+            "the downstream metric improves as the loss falls. Pearson r and p-values are in dynamics_corr.csv.",
+            "",
+            md_table(pd.concat([wide, n.rename("n")], axis=1).reset_index(names="metric"), 2),
+            "",
+        ]
+    (out / "dynamics.md").write_text("\n".join(md))
+    print("\n".join(md))
+    print(
+        f"wrote {out / 'dynamics.csv'}, {out / 'dynamics_corr.csv'}, {out / 'dynamics.md'}, "
+        + ", ".join(map(str, plots))
+    )
+
+
 def main():
     """Parse arguments and dispatch to a subcommand."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -493,14 +796,37 @@ def main():
 
     sub.add_parser("table", help="Aggregate jsons into results.csv / results.md")
 
+    p = sub.add_parser(
+        "dynamics", help="Downstream probes of checkpoints kept during pretraining", description=cmd_dynamics.__doc__
+    )
+    p.add_argument("stage", choices=["pretrain", "probe", "analyze"])
+    p.add_argument("--config", default=DYNAMICS["config"], help="Config name from CONFIGS")
+    p.add_argument("--seeds", type=int, nargs="+", default=[0], help="Pretraining seeds (pretrain)")
+    p.add_argument("--preset", choices=sorted(PRESETS), default="scale", help="pretrain")
+    p.add_argument(
+        "--keep_steps", nargs="+", default=DYNAMICS["keep_steps"], help="train.py --keep_ckpt_steps (pretrain)"
+    )
+    p.add_argument("--datasets", nargs="+", choices=list(PROBE_METRICS), default=list(PROBE_METRICS), help="probe")
+    p.add_argument("--head_seeds", type=int, nargs="+", default=[0, 1, 2], help="probe")
+    p.add_argument("--steps", type=int, nargs="*", default=[], help="Probe only these kept steps (default: all)")
+    p.add_argument("--max_epochs", type=int, default=PROBE["max_epochs"], help="probe")
+    p.add_argument("--jobs", type=int, default=1, help="Concurrent subprocesses")
+    p.add_argument("--dry_run", action="store_true", help="Print commands without running them")
+    p.add_argument("--condor", default=None, help="Write an HTCondor queue file for hpc/gpu.sub instead of running")
+
     args, passthrough = parser.parse_known_args()
     if passthrough and passthrough[0] == "--":
         passthrough = passthrough[1:]
-    if passthrough and args.command not in ("pretrain", "probe"):
+    if passthrough and args.command not in ("pretrain", "probe", "dynamics"):
         parser.error(f"unrecognized arguments: {' '.join(passthrough)}")
-    {"loader": cmd_loader, "pretrain": cmd_pretrain, "probe": cmd_probe, "table": cmd_table}[args.command](
-        args, passthrough
-    )
+    commands = {
+        "loader": cmd_loader,
+        "pretrain": cmd_pretrain,
+        "probe": cmd_probe,
+        "table": cmd_table,
+        "dynamics": cmd_dynamics,
+    }
+    commands[args.command](args, passthrough)
 
 
 if __name__ == "__main__":
