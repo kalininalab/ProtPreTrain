@@ -44,6 +44,15 @@ class SimpleMLP(torch.nn.Module):
         return self.main(x)
 
 
+def make_head(head: str, hidden_dim: int, out_dim: int, dropout: float) -> torch.nn.Module:
+    """Output head on frozen embeddings: ``mlp`` (one hidden layer) or ``linear`` (a linear probe)."""
+    if head == "mlp":
+        return LazySimpleMLP(hidden_dim, out_dim, dropout)
+    if head == "linear":
+        return torch.nn.LazyLinear(out_dim)
+    raise ValueError(f"unknown head {head!r}, expected 'mlp' or 'linear'")
+
+
 class BaseModel(LightningModule):
     """Base class for all downstream stuff.
 
@@ -117,9 +126,10 @@ class RegressionModel(BaseModel):
         self,
         hidden_dim: int = 512,
         dropout: float = 0.2,
+        head: str = "mlp",
     ):
         super().__init__()
-        self.linear = LazySimpleMLP(hidden_dim, 1, dropout)
+        self.linear = make_head(head, hidden_dim, 1, dropout)
         self.epoch_metrics = self._stage_metrics(
             {"mae": MeanAbsoluteError, "r2": R2Score, "spearman": SpearmanCorrCoef, "pearson": PearsonCorrCoef}
         )
@@ -142,9 +152,10 @@ class ClassificationModel(BaseModel):
         num_classes: int,
         hidden_dim: int = 512,
         dropout: float = 0.2,
+        head: str = "mlp",
     ):
         super().__init__()
-        self.linear = LazySimpleMLP(hidden_dim, num_classes, dropout)
+        self.linear = make_head(head, hidden_dim, num_classes, dropout)
         self.num_classes = num_classes
         self.epoch_metrics = self._stage_metrics(
             {

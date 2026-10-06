@@ -7,6 +7,8 @@ Subcommands (run from the repo root):
     python scripts/benchmark.py probe --head_seeds 0 1 2  # frozen-embedding homology probe of every finished run
     python scripts/benchmark.py probe --dataset stability  # same for another downstream dataset (PROBE_METRICS)
     python scripts/benchmark.py table                  # bench/results.csv + bench/results.md, every probed dataset
+    python scripts/benchmark.py probe --head linear    # linear probe instead of the MLP head (probe_lin_h<seed>)
+    python scripts/benchmark.py table --head linear    # bench/results_linear.{csv,md}
 
 Every run lives in ``<out>/<config>_s<seed>/`` (``pretrain.json``, ``pretrain.log``, ``checkpoints/``, and per head
 seed ``probe_h<head_seed>.json`` + ``.log`` for homology, ``probe_<dataset>_h<head_seed>.json`` + ``.log`` for any
@@ -325,9 +327,13 @@ def _probe_targets(out: Path, configs: list) -> list:
     return targets
 
 
-def probe_stem(dataset: str, head_seed) -> str:
-    """File stem of one probe's json/log/mlflow store; homology keeps the original ``probe_h<seed>`` names."""
-    return f"probe_h{head_seed}" if dataset == "homology" else f"probe_{dataset}_h{head_seed}"
+def probe_stem(dataset: str, head_seed, head: str = "mlp") -> str:
+    """File stem of one probe's json/log/mlflow store; homology keeps the original ``probe_h<seed>`` names.
+
+    Linear-probe runs (``--head linear``) add ``lin``: ``probe_lin_h<seed>`` / ``probe_<dataset>_lin_h<seed>``.
+    """
+    parts = ["probe"] + ([] if dataset == "homology" else [dataset]) + (["lin"] if head == "linear" else [])
+    return "_".join(parts + [f"h{head_seed}"])
 
 
 def embed_cache(d: Path, dataset: str) -> Path:
@@ -351,7 +357,7 @@ def cmd_probe(args, passthrough):
             print(f"skip {d.name}: checkpoint {ckpt!r} missing")
             continue
         for hs in args.head_seeds:
-            stem = probe_stem(args.dataset, hs)
+            stem = probe_stem(args.dataset, hs, args.head)
             summary = d / f"{stem}.json"
             if summary.exists():
                 print(f"skip {d.name} {args.dataset} head seed {hs}: {summary.name} exists")
@@ -359,11 +365,12 @@ def cmd_probe(args, passthrough):
             cmd = (
                 [python, "finetune.py"]
                 + to_cli({"dataset": args.dataset, "max_epochs": args.max_epochs})
-                + ["--model_source", "checkpoint", "--model", str(ckpt), "--seed", str(hs)]
+                + ["--model_source", "checkpoint", "--model", str(ckpt), "--seed", str(hs), "--head", args.head]
                 + ["--experiment", EXPERIMENT, "--summary_json", str(summary)]
                 # the encoder is frozen, so every head seed reuses one set of embeddings per run
                 + ["--embed_cache", str(embed_cache(d, args.dataset))]
-                + (["--random_init"] if random_init else [])
+                # one random network per pretraining seed, shared by its head seeds and splits
+                + (["--random_init", "--random_init_seed", d.name.rsplit("_s", 1)[1]] if random_init else [])
                 + passthrough
             )
             if not args.dry_run:
@@ -411,7 +418,7 @@ def cmd_table(args, _passthrough):
             else:
                 row["num_params"] = p.get("num_params")
         for ds, metrics in PROBE_METRICS.items():
-            probes = [json.loads(f.read_text()) for f in sorted(d.glob(f"{probe_stem(ds, '*')}.json"))]
+            probes = [json.loads(f.read_text()) for f in sorted(d.glob(f"{probe_stem(ds, '*', args.head)}.json"))]
             row[f"{ds}/n_head_seeds"] = len(probes)
             for m in metrics:
                 vals = [pr[m] for pr in probes if pr.get(m) is not None]
@@ -423,7 +430,9 @@ def cmd_table(args, _passthrough):
     rank = {n: i for i, n in enumerate(order)}
     df["_order"] = df["config"].map(lambda c: rank.get(c.split(" ")[0], len(order)))
     df = df.sort_values(["_order", "seed"]).drop(columns="_order")
-    df.to_csv(out / "results.csv", index=False)
+    # linear-probe tables go next to the MLP ones, not over them
+    csv_path, md_path = (out / f"results{'' if args.head == 'mlp' else '_linear'}.{ext}" for ext in ("csv", "md"))
+    df.to_csv(csv_path, index=False)
 
     cols = [
         ("train_time_s", "train time (min)", 1 / 60, 1),
@@ -453,9 +462,9 @@ def cmd_table(args, _passthrough):
     md = (
         "\n".join(lines) + "\n\nmean ± std over pretraining seeds; probe metrics are first averaged over head seeds.\n"
     )
-    (out / "results.md").write_text(md)
+    md_path.write_text(md)
     print(md)
-    print(f"wrote {out / 'results.csv'} and {out / 'results.md'}")
+    print(f"wrote {csv_path} and {md_path}")
 
 
 def main():
@@ -491,7 +500,9 @@ def main():
         "--dataset", choices=list(PROBE_METRICS), default=PROBE["dataset"], help="finetune.py downstream dataset"
     )
 
-    sub.add_parser("table", help="Aggregate jsons into results.csv / results.md")
+    sub.choices["probe"].add_argument("--head", choices=["mlp", "linear"], default="mlp", help="finetune.py --head")
+    p = sub.add_parser("table", help="Aggregate jsons into results.csv / results.md")
+    p.add_argument("--head", choices=["mlp", "linear"], default="mlp", help="Which probes to tabulate")
 
     args, passthrough = parser.parse_known_args()
     if passthrough and passthrough[0] == "--":

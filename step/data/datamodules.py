@@ -1,3 +1,4 @@
+import json
 import os
 import warnings
 from typing import List, Literal, Optional
@@ -115,9 +116,17 @@ class FoldCompDataModule(LightningDataModule):
 
 
 class DownstreamDataModule(LightningDataModule):
-    """Abstract class for downstream tasks."""
+    """Abstract class for downstream tasks.
+
+    ``setup`` embeds every split with the frozen feature extractor, then (``standardize``) z-scores the embeddings
+    per feature with the train split's mean and std. Embeddings are cached raw, so the cache does not depend on it.
+    """
 
     dataset_class = None
+    # Splits embedded for the test stage; also the order of test_dataloader()
+    test_splits = ("test",)
+    # Bump when the embeddings of an unchanged encoder change; caches written under another key are recomputed
+    EMBED_CACHE_VERSION = 2
 
     def __init__(
         self,
@@ -129,6 +138,9 @@ class DownstreamDataModule(LightningDataModule):
         ablation: Literal["none", "sequence", "structure"] = "none",
         ablation_maskfrac: float = 1.0,
         random_init: bool = False,
+        random_init_seed: int = 0,
+        bn_calib_batches: int = 50,
+        standardize: bool = True,
         embed_cache: str = None,
         radius: int = 10,
         walk_length: int = 20,
@@ -143,10 +155,17 @@ class DownstreamDataModule(LightningDataModule):
         self.ablation = ablation
         self.ablation_maskfrac = ablation_maskfrac
         self.random_init = random_init
+        self.random_init_seed = random_init_seed
+        self.bn_calib_batches = bn_calib_batches
+        self.standardize = standardize
         self.embed_cache = embed_cache
         self.radius = radius
         self.walk_length = walk_length
         self.kwargs = kwargs
+        self.model = None
+        self._transforms = None
+        # (mean, std) of the train split's embeddings, fixed at the first setup and applied to every split
+        self.embed_stats = None
         if ablation == "sequence" and feature_extract_model_source == "checkpoint":
             # Sequence ablation changes the pre_transform, so it needs its own processed files
             self.kwargs["processed_name"] = "processed_sequence"
@@ -192,10 +211,49 @@ class DownstreamDataModule(LightningDataModule):
     def _load_denoise_model(self):
         model = DenoiseModel.load_from_checkpoint(self.feature_extract_model, map_location="cpu")
         if self.random_init:
-            # No-pretraining control: same architecture and hyperparameters, fresh weights
-            model = DenoiseModel(**model.hparams)
+            # No-pretraining control: same architecture and hyperparameters, fresh weights. Seeded on its own, so the
+            # weights don't depend on the head seed or on how much of the global RNG stream was used before
+            with torch.random.fork_rng(devices=[]):
+                torch.manual_seed(self.random_init_seed)
+                model = DenoiseModel(**model.hparams)
         model.eval()
         return model
+
+    def _calibrate_batchnorm(self, transform, pre_transform):
+        """Set the random-init encoder's BatchNorm running stats from forward passes over the train split.
+
+        A fresh BatchNorm has running mean 0 / var 1, so in eval mode it is the identity and activations grow through
+        the residual GPS blocks (embeddings of magnitude ~100 for a 4-layer model). A trained encoder's stats match its
+        activations; this gives the random control the same, as in SWA's ``update_bn``: reset the stats, cumulative
+        average (momentum None) over up to ``bn_calib_batches`` shuffled train batches, every other layer in eval.
+        """
+        bns = [m for m in self.model.modules() if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)]
+        if not bns or self.bn_calib_batches <= 0:
+            return
+        dataset = self.dataset_class("train", transform=transform, pre_transform=pre_transform, **self.kwargs)
+        loader = DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            generator=torch.Generator().manual_seed(self.random_init_seed),
+            num_workers=self.num_workers,
+        )
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = self.model.to(device).eval()
+        momenta = [bn.momentum for bn in bns]
+        for bn in bns:
+            bn.reset_running_stats()
+            bn.momentum = None
+            bn.train()
+        # Same precision as the embedding pass (bf16-mixed on GPU); BatchNorm itself runs in fp32 under autocast
+        with torch.no_grad(), torch.autocast(device_type=device, dtype=torch.bfloat16, enabled=device == "cuda"):
+            for i, batch in enumerate(loader):
+                if i >= self.bn_calib_batches:
+                    break
+                model.predict_step(batch.to(device), i)
+        for bn, momentum in zip(bns, momenta, strict=True):
+            bn.momentum = momentum
+        self.model = model.eval().cpu()
 
     def load_pretrained_model(self):
         """Load the pretrained model."""
@@ -233,47 +291,82 @@ class DownstreamDataModule(LightningDataModule):
             raise ValueError(f"Unknown feature extract model source {self.feature_extract_model_source}")
 
     def _load_model_and_transforms(self):
-        """Load our encoder (if used) first, since its hyperparameters decide how the graphs are built."""
-        self.model = self.load_pretrained_model() if self._uses_denoise_model else None
-        return self._optional_add_transform(dict(self.model.hparams) if self.model else {})
+        """Load our encoder (if used) first, since its hyperparameters decide how the graphs are built.
+
+        Loaded once and kept: fit and test call ``setup`` separately, and every split must be embedded by the same
+        encoder (a random-init control re-drawn per stage would embed train and test with different networks).
+        """
+        if self._transforms is None:
+            self.model = self.load_pretrained_model() if self._uses_denoise_model else None
+            self._transforms = self._optional_add_transform(dict(self.model.hparams) if self.model else {})
+            if self.model is not None and self.random_init:
+                self._calibrate_batchnorm(*self._transforms)
+        return self._transforms
 
     def setup(self, stage: str = None):
-        """Load the individual datasets."""
+        """Load the datasets for ``stage``, embed them, and standardize the embeddings."""
         transform, pre_transform = self._load_model_and_transforms()
         splits = []
         if stage == "fit" or stage is None:
-            splits.append("train")
-            splits.append("val")
-            self.train = self.dataset_class(
-                "train",
-                transform=transform,
-                pre_transform=pre_transform,
-                **self.kwargs,
-            )
-            self.val = self.dataset_class(
-                "val",
-                transform=transform,
-                pre_transform=pre_transform,
-                **self.kwargs,
-            )
+            splits += ["train", "val"]
         if stage == "test" or stage is None:
-            splits.append("test")
-            self.test = self.dataset_class(
-                "test",
-                transform=transform,
-                pre_transform=pre_transform,
-                **self.kwargs,
+            splits += list(self.test_splits)
+        if self.standardize and self.embed_stats is None and "train" not in splits:
+            # Standardization statistics always come from the train split
+            splits.insert(0, "train")
+        for split in splits:
+            setattr(
+                self, split, self.dataset_class(split, transform=transform, pre_transform=pre_transform, **self.kwargs)
             )
         self.embed_splits(splits)
+        if self.standardize:
+            self._standardize(splits)
+
+    def _standardize(self, splits: List[str]):
+        """Z-score each embedding feature with the train split's mean and std (constant features keep std 1)."""
+        if self.embed_stats is None:
+            x = torch.stack([d.x.float().cpu() for d in self.train])
+            std = x.std(0)
+            self.embed_stats = (x.mean(0), torch.where(std > 1e-6, std, torch.ones_like(std)))
+        mean, std = self.embed_stats
+        for split in splits:
+            for d in getattr(self, split):
+                d.x = (d.x.float().cpu() - mean) / std
+
+    def _cache_key(self) -> dict:
+        """What the cached embeddings depend on beyond the cache path: the random-init control's weights and stats.
+
+        Pretrained encoders keep the empty key, so their caches from before the key existed stay valid.
+        """
+        if not (self._uses_denoise_model and self.random_init):
+            return {}
+        return {
+            "version": self.EMBED_CACHE_VERSION,
+            "random_init_seed": self.random_init_seed,
+            "bn_calib_batches": self.bn_calib_batches,
+        }
 
     def embed_splits(self, splits: List[str]):
-        """Embed the splits, reusing per-split embeddings from `embed_cache` when present."""
+        """Embed the splits, reusing per-split embeddings from `embed_cache` when present and current."""
         if not self.embed_cache:
             self._embed(splits)
             return
         os.makedirs(self.embed_cache, exist_ok=True)
         # Head-seed jobs sharing a cache start together: the first embeds, the others wait and load its result
         with FileLock(os.path.join(self.embed_cache, ".lock")):
+            key_path = os.path.join(self.embed_cache, "key.json")
+            key = self._cache_key()
+            stored = {}
+            if os.path.exists(key_path):
+                with open(key_path) as f:
+                    stored = json.load(f)
+            if stored != key:
+                # Written by another encoder setup: drop every split, not only the ones this stage needs
+                for name in os.listdir(self.embed_cache):
+                    if name.endswith(".pt"):
+                        os.remove(os.path.join(self.embed_cache, name))
+                with open(key_path, "w") as f:
+                    json.dump(key, f)
             cached = {}
             for split in splits:
                 path = os.path.join(self.embed_cache, f"{split}.pt")
@@ -307,12 +400,7 @@ class DownstreamDataModule(LightningDataModule):
         )
 
     def _assign_data(self, split: str, data_list: List[Data]):
-        if split == "train":
-            self.train = data_list
-        elif split == "val":
-            self.val = data_list
-        elif split == "test":
-            self.test = data_list
+        setattr(self, split, data_list)
 
     def _embed_with_denoise_model(self, splits: List[str]) -> List[Data]:
         trainer = Trainer(
@@ -426,64 +514,8 @@ class HomologyDataModule(DownstreamDataModule):
     """Predict remote homology."""
 
     dataset_class = HomologyDataset
-
-    def setup(self, stage: str = None):
-        """Load the individual datasets."""
-        transform, pre_transform = self._load_model_and_transforms()
-        splits = []
-        if stage == "fit" or stage is None:
-            splits.append("train")
-            splits.append("val")
-            self.train = self.dataset_class(
-                "train",
-                transform=transform,
-                pre_transform=pre_transform,
-                **self.kwargs,
-            )
-            self.val = self.dataset_class(
-                "val",
-                transform=transform,
-                pre_transform=pre_transform,
-                **self.kwargs,
-            )
-        if stage == "test" or stage is None:
-            splits += ["test_fold", "test_family", "test_superfamily"]
-            self.test_fold = self.dataset_class(
-                "test_fold",
-                transform=transform,
-                pre_transform=pre_transform,
-                **self.kwargs,
-            )
-            self.test_superfamily = self.dataset_class(
-                "test_superfamily",
-                transform=transform,
-                pre_transform=pre_transform,
-                **self.kwargs,
-            )
-            self.test_family = self.dataset_class(
-                "test_family",
-                transform=transform,
-                pre_transform=pre_transform,
-                **self.kwargs,
-            )
-        self.embed_splits(splits)
+    test_splits = ("test_fold", "test_superfamily", "test_family")
 
     def test_dataloader(self):
-        """Test dataloader."""
-        return [
-            self._get_dataloader(self.test_fold),
-            self._get_dataloader(self.test_superfamily),
-            self._get_dataloader(self.test_family),
-        ]
-
-    def _assign_data(self, split: str, data_list: List[Data]):
-        if split == "train":
-            self.train = data_list
-        elif split == "val":
-            self.val = data_list
-        elif split == "test_fold":
-            self.test_fold = data_list
-        elif split == "test_superfamily":
-            self.test_superfamily = data_list
-        elif split == "test_family":
-            self.test_family = data_list
+        """One test dataloader per holdout set, in ``HomologyModel.test_step``'s dataloader_idx order."""
+        return [self._get_dataloader(getattr(self, split)) for split in self.test_splits]
