@@ -124,6 +124,8 @@ other sources are sequence models and get `transform = pre_transform = None`.
   batches: fresh stats (mean 0, var 1) make eval-mode BatchNorm the identity, and embeddings blow up to ~100. The
   encoder is loaded once per datamodule, so fit and test embed with the same network. `--embed_cache` dirs carry a
   `key.json` (random-init seed/calibration, `EMBED_CACHE_VERSION`); a mismatching key drops every cached split.
+  `--calibrate_bn` runs the same BatchNorm calibration on a checkpoint's own weights (the untrained step-0
+  checkpoint of the dynamics study, which `benchmark.py dynamics probe` passes it for).
 - `--ablation sequence|structure` injects `SequenceOnly`/`StructureOnly` transforms to zero out one modality,
   and only applies to our `checkpoint` model.
 

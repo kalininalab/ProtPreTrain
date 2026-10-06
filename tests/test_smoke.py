@@ -537,6 +537,22 @@ def test_random_init_control(tmp_path, config):
     assert dms[0].model is model  # the test split is embedded by the same network as train
 
 
+def test_calibrate_bn_pretrained(tmp_path):
+    """--calibrate_bn resets a checkpoint's BatchNorm stats from train batches, keeps its weights, keys its cache."""
+    ckpt = save_toy_checkpoint(tmp_path / "toy.ckpt")
+    pretrained = torch.load(ckpt, weights_only=False)["state_dict"]
+    dm = toy_datamodule(ckpt, calibrate_bn=True, bn_calib_batches=2, embed_cache=str(tmp_path / "cache"))
+    dm.setup("fit")
+    state = dm.model.state_dict()
+    params = dict(dm.model.named_parameters())
+    assert params and all(torch.equal(p.detach(), pretrained[k]) for k, p in params.items())
+    bns = [m for m in dm.model.modules() if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)]
+    assert bns and all(bn.num_batches_tracked == 2 for bn in bns)
+    assert any(not torch.equal(state[k], pretrained[k]) for k in state if k.endswith("running_var"))
+    assert dm._cache_key()["calibrate_bn"] is True
+    assert toy_datamodule(ckpt)._cache_key() == {}
+
+
 def test_embedding_standardization(tmp_path):
     """Embeddings are z-scored with the train split's statistics, and the cache holds them unstandardized."""
     ckpt = save_toy_checkpoint(tmp_path / "toy.ckpt")
@@ -710,6 +726,7 @@ def test_dynamics_probe_and_analyze(tmp_path):
     assert len(lines) == len(steps) * 2 * 2
     assert all("--num_workers 7" in line and "--model_source checkpoint" in line for line in lines)
     assert any("probes/step_0000500/embeddings_fluorescence" in line for line in lines)
+    assert not any("--calibrate_bn" in line for line in lines)  # only the untrained step-0 checkpoint is recalibrated
 
     # Fake probe results that improve as the val loss falls; finished probes are not queued again
     for i, step in enumerate(steps):
@@ -729,3 +746,24 @@ def test_dynamics_probe_and_analyze(tmp_path):
     assert corr.loc[("fluorescence", "val/noise_loss"), "spearman_rho"] == pytest.approx(-1.0)
     for name in ("dynamics.md", "dynamics_vs_step.png", "dynamics_vs_loss.png"):
         assert (out / name).exists()
+
+
+def test_dynamics_probe_calibrates_step0(tmp_path):
+    """The untrained step-0 checkpoint is probed with --calibrate_bn; trained checkpoints are not."""
+    import json
+    import subprocess
+    import sys
+
+    ckpts = tmp_path / "dynamics" / "+invariant_s0" / "checkpoints"
+    ckpts.mkdir(parents=True)
+    for step in (0, 500):
+        stem = ckpts / f"step_{step:07d}"
+        stem.with_suffix(".ckpt").write_bytes(b"")
+        stem.with_suffix(".json").write_text(json.dumps({"step": step, "val/loss": 1.0}))
+    queue = tmp_path / "q.txt"
+    script = Path(__file__).parents[1] / "scripts" / "benchmark.py"
+    cmd = [sys.executable, str(script), "--out", str(tmp_path), "dynamics", "probe", "--datasets", "stability"]
+    subprocess.run([*cmd, "--head_seeds", "0", "--condor", str(queue)], check=True, capture_output=True)
+    lines = queue.read_text().splitlines()
+    assert len(lines) == 2
+    assert all(("--calibrate_bn" in line) == ("step_0000000.ckpt" in line) for line in lines)

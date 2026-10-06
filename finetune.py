@@ -39,7 +39,12 @@ parser.add_argument(
     "--bn_calib_batches",
     type=int,
     default=50,
-    help="--random_init: train batches whose activations set the fresh BatchNorm running stats (0 = keep 0/1)",
+    help="--random_init/--calibrate_bn: train batches whose activations set the BatchNorm running stats (0 = keep)",
+)
+parser.add_argument(
+    "--calibrate_bn",
+    action="store_true",
+    help="Recalibrate the checkpoint's BatchNorm running stats before embedding (untrained checkpoints, e.g. step 0)",
 )
 parser.add_argument(
     "--standardize",
@@ -91,6 +96,7 @@ data = {
     random_init=config.random_init,
     random_init_seed=config.random_init_seed,
     bn_calib_batches=config.bn_calib_batches,
+    calibrate_bn=config.calibrate_bn,
     standardize=config.standardize,
     embed_cache=config.embed_cache,
 )

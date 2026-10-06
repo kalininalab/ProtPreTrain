@@ -140,6 +140,7 @@ class DownstreamDataModule(LightningDataModule):
         random_init: bool = False,
         random_init_seed: int = 0,
         bn_calib_batches: int = 50,
+        calibrate_bn: bool = False,
         standardize: bool = True,
         embed_cache: str = None,
         radius: int = 10,
@@ -157,6 +158,7 @@ class DownstreamDataModule(LightningDataModule):
         self.random_init = random_init
         self.random_init_seed = random_init_seed
         self.bn_calib_batches = bn_calib_batches
+        self.calibrate_bn = calibrate_bn
         self.standardize = standardize
         self.embed_cache = embed_cache
         self.radius = radius
@@ -220,7 +222,7 @@ class DownstreamDataModule(LightningDataModule):
         return model
 
     def _calibrate_batchnorm(self, transform, pre_transform):
-        """Set the random-init encoder's BatchNorm running stats from forward passes over the train split.
+        """Set the encoder's BatchNorm running stats from forward passes over the train split (random init, step 0).
 
         A fresh BatchNorm has running mean 0 / var 1, so in eval mode it is the identity and activations grow through
         the residual GPS blocks (embeddings of magnitude ~100 for a 4-layer model). A trained encoder's stats match its
@@ -299,7 +301,7 @@ class DownstreamDataModule(LightningDataModule):
         if self._transforms is None:
             self.model = self.load_pretrained_model() if self._uses_denoise_model else None
             self._transforms = self._optional_add_transform(dict(self.model.hparams) if self.model else {})
-            if self.model is not None and self.random_init:
+            if self.model is not None and (self.random_init or self.calibrate_bn):
                 self._calibrate_batchnorm(*self._transforms)
         return self._transforms
 
@@ -334,17 +336,20 @@ class DownstreamDataModule(LightningDataModule):
                 d.x = (d.x.float().cpu() - mean) / std
 
     def _cache_key(self) -> dict:
-        """What the cached embeddings depend on beyond the cache path: the random-init control's weights and stats.
+        """What the cached embeddings depend on beyond the cache path: random-init weights and recalibrated BN stats.
 
         Pretrained encoders keep the empty key, so their caches from before the key existed stay valid.
         """
-        if not (self._uses_denoise_model and self.random_init):
+        if not (self._uses_denoise_model and (self.random_init or self.calibrate_bn)):
             return {}
-        return {
+        key = {
             "version": self.EMBED_CACHE_VERSION,
             "random_init_seed": self.random_init_seed,
             "bn_calib_batches": self.bn_calib_batches,
         }
+        if self.calibrate_bn and not self.random_init:
+            key["calibrate_bn"] = True
+        return key
 
     def embed_splits(self, splits: List[str]):
         """Embed the splits, reusing per-split embeddings from `embed_cache` when present and current."""

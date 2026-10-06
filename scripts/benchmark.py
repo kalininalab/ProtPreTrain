@@ -130,7 +130,8 @@ MAX_CONDOR_JOBS = 150  # SUBMIT_REQUIREMENT_MaxMaterializations on conduit
 # each kept checkpoint probed downstream. Lives in <out>/dynamics/<config>_s<seed>/.
 DYNAMICS = {
     "config": "+invariant",
-    "keep_steps": ["double=500", "final"],  # 500, 1k, 2k, ..., 64k and the last step (77,345 at the scale preset)
+    # step 0 (untrained; probed with --calibrate_bn), 500, 1k, 2k, ..., 64k and the last step (77,345 at scale)
+    "keep_steps": ["0", "double=500", "final"],
     "ckpt_every_n_steps": 2000,  # last.ckpt refresh: a preempted job loses at most this many steps
     "experiment": "step-dynamics",
 }
@@ -585,6 +586,8 @@ def dynamics_probe(args, passthrough):
                     + ["--model_source", "checkpoint", "--model", str(ckpt), "--seed", str(hs)]
                     + ["--experiment", DYNAMICS["experiment"], "--summary_json", str(summary)]
                     + ["--embed_cache", str(embed_cache(pd, ds))]
+                    # untrained weights carry fresh BatchNorm stats (0/1): set them as for the random-init control
+                    + (["--calibrate_bn"] if step == 0 else [])
                     + passthrough
                 )
                 if not args.dry_run:

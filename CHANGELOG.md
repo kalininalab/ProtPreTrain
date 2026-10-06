@@ -38,9 +38,13 @@ Probe results from before this change are not comparable with later ones: rerun 
   the mean train loss over the last `--keep_ckpt_window` steps, epoch and lr; logged to MLflow as `kept/...` at that
   step and listed in `--summary_json` under `kept_checkpoints`. Restart-safe through `last.ckpt`.
 - `scripts/benchmark.py dynamics pretrain|probe|analyze`: pretrain one config (default `+invariant`) with kept
-  checkpoints (default `double=500 final`), probe every kept checkpoint on every downstream dataset through the
+  checkpoints (default `0 double=500 final`), probe every kept checkpoint on every downstream dataset through the
   unchanged finetune.py path, and write `dynamics.csv`, `dynamics_corr.csv` (Pearson/Spearman of each downstream
   metric against the pretraining losses and log step), `dynamics.md` and plots. `hpc/runs/dynamics_analyze.txt`.
+- `finetune.py --calibrate_bn`: set a checkpoint's BatchNorm running stats from train batches before embedding,
+  as for `--random_init`. `dynamics probe` passes it for the untrained step-0 checkpoint (fresh 0/1 stats).
+- `tests/conftest.py` hides GPUs: the smoke tests are CPU-only, and a GPU without kernels in this torch build
+  (e.g. sm_61) still reports `torch.cuda.is_available()`.
 - `benchmark.py --condor` splits queue files above 150 jobs (the per-submit limit) into `_part<i>` files.
 
 ### Fixed
