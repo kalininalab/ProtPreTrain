@@ -20,7 +20,7 @@ main tracking store.
 
 On the conduit cluster, ``--condor FILE`` (pretrain and probe) writes an HTCondor queue file for hpc/gpu.sub instead
 of running anything: one ``<mlflow store>, <command>`` line per job, each job with its own MLflow store. Generate the
-probe file once the pretraining jobs have finished (it reads their ``pretrain.json``). See hpc/README.md.
+probe file once the pretraining jobs have finished (it reads their ``pretrain.json``). See hpc/README.md on the hpc branch.
 
 Unknown arguments are passed through verbatim to train.py / finetune.py after the preset/config arguments (argparse
 keeps the last occurrence, so they override), e.g. ``pretrain --configs legacy -- --max_epochs 2 --num_workers 4``.

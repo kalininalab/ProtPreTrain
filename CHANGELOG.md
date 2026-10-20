@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [dev] — 2026-10-20 — code without the cluster setup
+
+dev carries everything from the `hpc` branch except the HTCondor setup itself: `hpc/` and `.dockerignore` stay on
+`hpc`, which merges dev. References to `hpc/...` below point at that branch.
+
 ## [probe-fixes] — 2026-10-06 — frozen-embedding probe protocol
 
 Probe results from before this change are not comparable with later ones: rerun them (see `hpc/README.md`).

@@ -1,7 +1,7 @@
 """Aggregate downstream test metrics over seeds into mean ± 95% CI, and pretraining compute per model.
 
 Reads finished runs from the MLflow tracking store ($MLFLOW_TRACKING_URI, default sqlite:///mlflow.db), or from
-many per-job SQLite stores at once (cluster jobs each write their own, see hpc/README.md):
+many per-job SQLite stores at once (cluster jobs each write their own, see hpc/README.md on the hpc branch):
 
 python scripts/aggregate_results.py --out results.csv
 python scripts/aggregate_results.py --db_glob '/home/s8ilsena/step/runs/**/*.db' --out results.csv
