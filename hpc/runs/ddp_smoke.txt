@@ -1,0 +1,1 @@
+/home/s8ilsena/step/runs/ddp_smoke/mlflow.db, python train.py --dataset afdb_rep_v4 --subset 20000 --val_size 512 --max_epochs 1 --lr 3e-4 --dropout 0 --invariant true --num_workers 7 --ckpt_dir /home/s8ilsena/step/runs/ddp_smoke/checkpoints --ckpt_every_n_steps 50 --keep_ckpt_steps every=50 final --resume auto --summary_json /home/s8ilsena/step/runs/ddp_smoke/pretrain.json

@@ -47,15 +47,19 @@ export MLFLOW_DISABLE_AGENT_HINT=1
 export PYTHONUNBUFFERED=1
 export TQDM_MININTERVAL=30
 
-# Torch otherwise sizes its thread pools to the whole machine, not the cores we requested
+# Torch otherwise sizes its thread pools to the whole machine, not the cores we requested. Under DDP every GPU gets
+# its own process, so the requested cores are split between them.
 THREADS="${_CONDOR_REQUEST_CPUS:-${OMP_NUM_THREADS:-4}}"
+NGPUS=$(awk -F, '{print NF}' <<< "${CUDA_VISIBLE_DEVICES:-}")
+(( NGPUS > 1 )) && THREADS=$(( THREADS / NGPUS > 0 ? THREADS / NGPUS : 1 ))
 export OMP_NUM_THREADS="$THREADS"
 export MKL_NUM_THREADS="$THREADS"
 
 echo "=== $(date -Is) on $(hostname) ==="
 echo "repo:    $REPO ($(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo 'no git'))"
 echo "store:   ${MLFLOW_TRACKING_URI:-none}"
-echo "threads: $THREADS"
+echo "threads: $THREADS per process (${NGPUS:-0} GPUs)"
+echo "shm:     $(df -h /dev/shm 2>/dev/null | awk 'NR==2 {print $2}')"
 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>/dev/null || echo "gpu:     none"
 echo "cmd:     $*"
 echo "=========================================="
