@@ -113,6 +113,8 @@ CONFIGS += [
     {**_EDGES, "name": "nope", "pe": "none"},
     {**_EDGES, "name": "lr1e-3", "lr": 1e-3},
 ]
+# The final model: +invariant (best homology/fluorescence) with drop0's dropout (best DeepLoc)
+CONFIGS.append({**next(c for c in CONFIGS if c["name"] == "+invariant"), "name": "inv_drop0", "dropout": 0.0})
 # The random-init probe control reuses this config's checkpoints (architecture + hparams, fresh weights)
 RANDOM_INIT_OF = "+invariant"  # the final cumulative config
 

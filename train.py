@@ -158,11 +158,13 @@ datamodule = FoldCompDataModule(
 )
 
 model = DenoiseModel(**config)
+# Best checkpoint by held-out loss when there is a val split (train loss can't show overfitting), saved after each
+# validation; otherwise by train loss at epoch end
 checkpoint = pl.callbacks.ModelCheckpoint(
-    monitor="train/loss",
+    monitor="val/loss" if args.val_size else "train/loss",
     mode="min",
     dirpath=ckpt_dir,
-    save_on_train_epoch_end=True,
+    save_on_train_epoch_end=not args.val_size,
 )
 # Latest state, overwritten in place: what --resume auto restarts from. ModelCheckpoint takes one trigger, and with
 # every_n_train_steps alone it never saves at epoch end, so the step-based refresh is a second callback.
