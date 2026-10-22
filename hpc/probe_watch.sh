@@ -14,6 +14,7 @@ INTERVAL="${3:?interval}"
 shift 3
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+shopt -s nullglob  # an unmatched glob is an empty list, not the pattern itself
 QUEUE="hpc/runs/watch_$(basename "$OUT")_${CONFIG//[^A-Za-z0-9_-]/}.txt"
 
 while true; do
@@ -28,7 +29,7 @@ while true; do
             xargs -r touch < "$QUEUE.markers"
         fi
         rm -f "$QUEUE" "$QUEUE.markers"
-    elif [[ -e "${finished[0]}" && ${#finished[@]} -eq ${#runs[@]} ]]; then
+    elif (( ${#runs[@]} > 0 && ${#finished[@]} == ${#runs[@]} )); then
         echo "every run finished and every kept checkpoint is queued"
         exit 0
     fi
