@@ -154,5 +154,7 @@ other sources are sequence models and get `transform = pre_transform = None`.
   `benchmark.py dynamics pretrain|probe|analyze` is the pretraining-dynamics study (`DYNAMICS`): one config with
   kept checkpoints in `<out>/dynamics/<config>_s<seed>/`, probes per kept step in `probes/step_<N>/`, results in
   `<out>/dynamics/dynamics.{csv,md}`, `dynamics_corr.csv` and plots (experiment `step-dynamics`).
+  `--preset full` (whole afdb_rep_v4, 10 epochs) is the final run; `dynamics probe --per_checkpoint` (driven by the
+  `hpc/watch.sub` scheduler-universe watcher) probes each kept checkpoint with MLP and linear heads while it trains.
 - `--ckpt_every_n_steps` adds a *second* `last.ckpt` callback: one `ModelCheckpoint` accepts a single trigger, and
   with `every_n_train_steps` alone it never saves at epoch end.

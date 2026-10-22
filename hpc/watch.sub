@@ -1,0 +1,28 @@
+# Watcher that probes a pretraining run's kept checkpoints while it trains (hpc/probe_watch.sh).
+#
+#   cd /home/s8ilsena/step/ProtPreTrain
+#   condor_submit hpc/watch.sub                                        # defaults below
+#   condor_submit -a 'config=+invariant' -a 'out=/home/s8ilsena/step/full' hpc/watch.sub
+#
+# Scheduler universe: it runs on the submit node itself (stdlib python + condor_submit, a few MB), not in docker.
+# Stop it with condor_rm; restarting it is safe, already queued checkpoints carry a probes/step_<N>/queued marker.
+
+root     = /home/s8ilsena/step
+out      = $(root)/full
+config   = +invariant
+interval = 900
+# one head seed per checkpoint while training; probe the final checkpoint with more seeds afterwards
+probe_args = --datasets homology fluorescence stability deeploc --heads mlp linear --head_seeds 0 -- --num_workers 7
+
+universe   = scheduler
+executable = $(root)/ProtPreTrain/hpc/probe_watch.sh
+arguments  = "$(out) $(config) $(interval) $(probe_args)"
+initialdir = $(root)/ProtPreTrain
+getenv     = true
+
+output       = $(root)/runlogs/watch.$(ClusterId).out
+error        = $(root)/runlogs/watch.$(ClusterId).err
+log          = $(root)/runlogs/watch.$(ClusterId).log
+notification = Never
+
+queue

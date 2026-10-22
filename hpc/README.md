@@ -153,6 +153,32 @@ condor_submit -a 'runfile=hpc/runs/dynamics_analyze.txt' hpc/cpu.sub            
   `val/pred_loss`, `val/pred_acc`, the train loss and log10 step, pooled over seeds), `dynamics.md`,
   `dynamics_vs_step.png` and `dynamics_vs_loss.png`.
 
+### The full pretraining run, probed while it trains
+
+The final model trains on the whole afdb_rep_v4 (`--preset full`: the scale model, all 2.24M structures, 10 epochs)
+through the dynamics machinery, so it keeps checkpoints at steps 0, 500, 1k, 2k, 4k, ... and the last step. A watcher
+job on the submit node (`hpc/watch.sub`, scheduler universe) checks every 15 min for new kept checkpoints and queues
+one GPU job per checkpoint: it embeds the four downstream datasets once, trains an MLP and a linear head on each
+(one head seed), and refreshes `<out>/dynamics/dynamics.{csv,md}`, `dynamics_vs_step.png` and `dynamics_vs_loss.png`.
+
+```bash
+cd /home/s8ilsena/step/ProtPreTrain
+python3 scripts/benchmark.py --out /home/s8ilsena/step/full dynamics pretrain --config +invariant --preset full \
+    --condor hpc/runs/full_pretrain.txt -- --num_workers 7
+condor_submit -a 'request_GPUs=2' -a 'request_CPUs=16' -a 'request_memory=64G' \
+    -a 'runfile=hpc/runs/full_pretrain.txt' hpc/gpu.sub          # DDP: one process per GPU, 7 loader workers each
+condor_submit -a 'config=+invariant' hpc/watch.sub               # exits once training is done and all is queued
+# afterwards, the final checkpoint with all head seeds:
+python3 scripts/benchmark.py --out /home/s8ilsena/step/full dynamics probe --config +invariant --steps <last step> \
+    --heads mlp linear --head_seeds 0 1 2 --condor hpc/runs/full_final_probe.txt -- --num_workers 7
+```
+
+- Steps count optimizer steps, so the schedule depends on the GPU count: with DDP the global batch is
+  32 × GPUs and an epoch has proportionally fewer steps.
+- Each queued checkpoint gets `probes/step_<N>/queued`. Delete it to queue that checkpoint again (after a failed
+  job); restarting the watcher is safe. `watch.<cluster>.out` in `runlogs/` logs each round.
+- Probe stores sit next to their jsons (`probes/step_<N>/<stem>.mlflow.db`), one per probe.
+
 ## Restarts
 
 Pretraining queued through these files uses `--ckpt_dir <run>/checkpoints --resume auto`: `last.ckpt` is refreshed at

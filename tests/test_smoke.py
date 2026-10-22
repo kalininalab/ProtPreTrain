@@ -767,3 +767,59 @@ def test_dynamics_probe_calibrates_step0(tmp_path):
     lines = queue.read_text().splitlines()
     assert len(lines) == 2
     assert all(("--calibrate_bn" in line) == ("step_0000000.ckpt" in line) for line in lines)
+
+
+def test_dynamics_per_checkpoint_and_linear(tmp_path):
+    """--per_checkpoint queues one job per new kept checkpoint; linear-head probes get their own dynamics columns."""
+    import json
+    import subprocess
+    import sys
+
+    import pandas as pd
+
+    run = tmp_path / "dynamics" / "+invariant_s0"
+    (run / "checkpoints").mkdir(parents=True)
+    for i, step in enumerate((500, 1000, 2000)):
+        stem = run / "checkpoints" / f"step_{step:07d}"
+        stem.with_suffix(".ckpt").write_bytes(b"")
+        record = {"step": step, "val/loss": 2.0 - i, "val/noise_loss": 1.0 - 0.2 * i, "val/pred_loss": 3.0 - i}
+        stem.with_suffix(".json").write_text(json.dumps({**record, "val/pred_acc": 0.1 * i}))
+    script = Path(__file__).parents[1] / "scripts" / "benchmark.py"
+
+    def bench(*argv):
+        cmd = [sys.executable, str(script), "--out", str(tmp_path), "dynamics", "probe", "--datasets", "stability"]
+        cmd += ["--heads", "mlp", "linear", "--head_seeds", "0", *argv]
+        return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+
+    queue = tmp_path / "q.txt"
+    bench("--per_checkpoint", "--condor", str(queue), "--", "--num_workers", "7")
+    lines = queue.read_text().splitlines()
+    assert len(lines) == 3 and all(line.startswith("-, python scripts/benchmark.py") for line in lines)
+    assert "dynamics probe --config +invariant --steps 500 " in lines[0]
+    assert all("--heads mlp linear" in line and "--analyze -- --num_workers 7" in line for line in lines)
+    markers = Path(f"{queue}.markers").read_text().split()
+    assert markers[0] == str(run / "probes" / "step_0000500" / "queued")
+
+    # queued (marker) and fully probed checkpoints are not queued again
+    Path(markers[0]).parent.mkdir(parents=True)
+    Path(markers[0]).touch()
+    for i, step in enumerate((500, 1000, 2000)):
+        pdir = run / "probes" / f"step_{step:07d}"
+        pdir.mkdir(parents=True, exist_ok=True)
+        (pdir / "probe_stability_h0.json").write_text(json.dumps({"test/spearman": 0.1 * i}))
+        if step != 2000:
+            (pdir / "probe_stability_lin_h0.json").write_text(json.dumps({"test/spearman": 0.2 * i}))
+    bench("--per_checkpoint", "--condor", str(queue))
+    assert [line.split("--steps ")[1].split()[0] for line in queue.read_text().splitlines()] == ["2000"]
+
+    # the job's own invocation: one finetune.py per head, linear passes --head linear
+    out = bench("--steps", "2000", "--dry_run")
+    cmds = [line for line in out.splitlines() if line.startswith("[dry-run]")]
+    assert len(cmds) == 1 and "--head linear" in cmds[0] and "step_0002000" in cmds[0]
+
+    subprocess.run([sys.executable, str(script), "--out", str(tmp_path), "dynamics", "analyze"], check=True)
+    df = pd.read_csv(tmp_path / "dynamics" / "dynamics.csv")
+    assert df["stability/test/spearman"].tolist() == pytest.approx([0.0, 0.1, 0.2])
+    assert df["stability_lin/test/spearman"].tolist()[:2] == pytest.approx([0.0, 0.2])
+    corr = pd.read_csv(tmp_path / "dynamics" / "dynamics_corr.csv")
+    assert set(corr["head"]) == {"mlp", "linear"}

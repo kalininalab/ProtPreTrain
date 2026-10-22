@@ -3,6 +3,26 @@
 All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [hpc] — 2026-10-22 — full pretraining run, probed while it trains
+
+### Added
+
+- `benchmark.py --preset full`: the scale model on the whole afdb_rep_v4 (2.24M structures), 10 epochs.
+- `benchmark.py dynamics probe --heads mlp linear` (default `mlp`): linear-head probes of kept checkpoints, reported
+  as `<dataset>_lin/...` columns in `dynamics.csv` and a `head` column in `dynamics_corr.csv`.
+- `dynamics probe --per_checkpoint --condor FILE`: one GPU job per new kept checkpoint (all its probes, then
+  `--analyze`); `hpc/watch.sub` + `hpc/probe_watch.sh` run it every 15 min on the submit node while training runs.
+- `hpc/runs/ddp_smoke.txt`: a short multi-GPU (DDP) pretraining run.
+
+### Changed
+
+- `hpc/job.sh` splits the requested CPU threads across DDP ranks and logs the `/dev/shm` size.
+- `dynamics probe` gives every probe its own MLflow store next to its json, also when run locally.
+
+### Fixed
+
+- `dynamics analyze` crashed plotting checkpoints probed with a single head seed (no std for the error bar).
+
 ## [probe-fixes] — 2026-10-06 — frozen-embedding probe protocol
 
 Probe results from before this change are not comparable with later ones: rerun them (see `hpc/README.md`).

@@ -73,6 +73,8 @@ PRESETS = {
         "num_workers": 16,
     },
 }
+# The final pretraining run: the whole afdb_rep_v4 (2.24M structures within max_length) instead of the first 500k
+PRESETS["full"] = {k: v for k, v in PRESETS["scale"].items() if k != "subset"} | {"max_epochs": 10}
 
 LEGACY = {
     "pe": "rw",
@@ -137,6 +139,10 @@ DYNAMICS = {
 }
 # Pretraining quantities correlated with downstream metrics (keys of each kept checkpoint's sidecar json)
 DYNAMICS_PRETRAIN = ["val/loss", "val/noise_loss", "val/pred_loss", "val/pred_acc", "train/loss_window"]
+# Probe head -> (suffix of its dataset in dynamics.csv columns, suffix of its plot/table label)
+HEADS = {"mlp": ("", ""), "linear": ("_lin", ", linear")}
+# Marks a kept checkpoint whose probe job (dynamics probe --per_checkpoint) has been submitted
+QUEUED = "queued"
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -563,11 +569,18 @@ def dynamics_pretrain(args, passthrough):
 
 
 def dynamics_probe(args, passthrough):
-    """finetune.py for every kept checkpoint x dataset x head seed that has no summary json yet.
+    """finetune.py for every kept checkpoint x dataset x head x head seed that has no summary json yet.
 
-    Probes of checkpoint ``step_<N>`` live in ``<run>/probes/step_<N>/`` with one embedding cache per dataset there.
+    Probes of checkpoint ``step_<N>`` live in ``<run>/probes/step_<N>/`` with one embedding cache per dataset there,
+    shared by both heads and all head seeds. Every probe logs to its own MLflow store next to its json.
+
+    ``--per_checkpoint --condor FILE`` queues one job per checkpoint instead, which runs this same subcommand for just
+    that step (its probes in sequence, then ``analyze``); see :func:`per_checkpoint_jobs`.
     """
-    dyn = Path(args.out).resolve() / "dynamics"
+    if args.per_checkpoint:
+        if not args.condor:
+            sys.exit("--per_checkpoint writes a queue file: pass --condor FILE")
+        return per_checkpoint_jobs(args, passthrough)
     python = "python" if args.condor else sys.executable
     jobs, condor = [], []
     for d in dynamics_runs(args):
@@ -575,15 +588,15 @@ def dynamics_probe(args, passthrough):
             if args.steps and step not in args.steps:
                 continue
             pd = d / "probes" / ckpt.stem
-            for ds, hs in itertools.product(args.datasets, args.head_seeds):
-                stem = probe_stem(ds, hs)
+            for ds, head, hs in itertools.product(args.datasets, args.heads, args.head_seeds):
+                stem = probe_stem(ds, hs, head)
                 summary = pd / f"{stem}.json"
                 if summary.exists():
                     continue
                 cmd = (
                     [python, "finetune.py"]
                     + to_cli({"dataset": ds, "max_epochs": args.max_epochs})
-                    + ["--model_source", "checkpoint", "--model", str(ckpt), "--seed", str(hs)]
+                    + ["--model_source", "checkpoint", "--model", str(ckpt), "--seed", str(hs), "--head", head]
                     + ["--experiment", DYNAMICS["experiment"], "--summary_json", str(summary)]
                     + ["--embed_cache", str(embed_cache(pd, ds))]
                     # untrained weights carry fresh BatchNorm stats (0/1): set them as for the random-init control
@@ -592,19 +605,60 @@ def dynamics_probe(args, passthrough):
                 )
                 if not args.dry_run:
                     pd.mkdir(parents=True, exist_ok=True)
-                condor.append((pd / f"{stem}.mlflow.db", cmd))
+                store = pd / f"{stem}.mlflow.db"
+                condor.append((store, cmd))
                 jobs.append(
-                    lambda cmd=cmd, pd=pd, stem=stem: run_cmd(cmd, pd / f"{stem}.log", args.dry_run, dyn / "mlflow.db")
+                    lambda cmd=cmd, log=pd / f"{stem}.log", store=store: run_cmd(cmd, log, args.dry_run, store)
                 )
     if not jobs:
         print("dynamics probe: nothing to do (no kept checkpoints yet, or every probe has its json)")
-        return
-    if args.condor:
+    elif args.condor:
         write_condor(args.condor, condor)
         return
-    # The first probe of each dataset processes data/<dataset>; run one alone before the parallel rest
-    rcs = [jobs[0]()] + run_all(jobs[1:], args.jobs)
-    print(f"dynamics probe: {len(rcs)} launched, {sum(rc != 0 for rc in rcs)} failed")
+    else:
+        # The first probe of each dataset processes data/<dataset>; run one alone before the parallel rest
+        rcs = [jobs[0]()] + run_all(jobs[1:], args.jobs)
+        print(f"dynamics probe: {len(rcs)} launched, {sum(rc != 0 for rc in rcs)} failed")
+    if args.analyze and not args.dry_run:
+        dynamics_analyze(args, passthrough)
+
+
+def per_checkpoint_jobs(args, passthrough):
+    """Queue one GPU job per kept checkpoint that still lacks probes and has not been queued before.
+
+    Each job runs ``dynamics probe --steps <N> --analyze`` locally: every dataset embedded once, both heads trained
+    on the cached embeddings, then the tables and plots refreshed. Alongside the queue file, ``<FILE>.markers`` lists
+    one ``probes/step_<N>/queued`` marker per job; hpc/probe_watch.sh creates them once condor_submit succeeds, so a
+    checkpoint is queued once. Delete a marker to queue that checkpoint again (e.g. after its job failed).
+    """
+    out = Path(args.out).resolve()
+    lines, markers = [], []
+    for d in dynamics_runs(args):
+        for step, ckpt, _ in _kept(d):
+            if args.steps and step not in args.steps:
+                continue
+            pd = d / "probes" / ckpt.stem
+            stems = [
+                probe_stem(ds, hs, h) for ds, h, hs in itertools.product(args.datasets, args.heads, args.head_seeds)
+            ]
+            if (pd / QUEUED).exists() or all((pd / f"{s}.json").exists() for s in stems):
+                continue
+            cmd = (
+                ["python", "scripts/benchmark.py", "--out", str(out), "dynamics", "probe", "--config", args.config]
+                + ["--steps", str(step), "--datasets", *args.datasets, "--heads", *args.heads]
+                + ["--head_seeds", *map(str, args.head_seeds), "--max_epochs", str(args.max_epochs), "--analyze"]
+                + (["--", *passthrough] if passthrough else [])
+            )
+            lines.append(("-", cmd))
+            markers.append(pd / QUEUED)
+    if not lines:
+        print("dynamics probe: no new checkpoints to queue")
+        Path(args.condor).unlink(missing_ok=True)
+        return
+    # one queue file per round: anything beyond the per-submit limit is picked up by the next round
+    lines, markers = lines[:MAX_CONDOR_JOBS], markers[:MAX_CONDOR_JOBS]
+    write_condor(args.condor, lines)
+    Path(f"{args.condor}.markers").write_text("".join(f"{m}\n" for m in markers))
 
 
 def md_table(df, digits: int) -> str:
@@ -633,15 +687,28 @@ def dynamics_table(args):
             row["final"] = step == record.get("planned_steps")
             row.update({k: record.get(k) for k in ["lr", *DYNAMICS_PRETRAIN]})
             pdir = d / "probes" / ckpt.stem
-            for ds, metrics in PROBE_METRICS.items():
-                probes = [json.loads(f.read_text()) for f in sorted(pdir.glob(f"{probe_stem(ds, '*')}.json"))]
-                row[f"{ds}/n_head_seeds"] = len(probes)
+            for (ds, metrics), (head, (sfx, _)) in itertools.product(PROBE_METRICS.items(), HEADS.items()):
+                probes = [json.loads(f.read_text()) for f in sorted(pdir.glob(f"{probe_stem(ds, '*', head)}.json"))]
+                if head != "mlp" and not probes:
+                    continue  # linear columns only where linear probes exist
+                row[f"{ds}{sfx}/n_head_seeds"] = len(probes)
                 for m in metrics:
                     vals = [p[m] for p in probes if p.get(m) is not None]
-                    row[f"{ds}/{m}"] = float(np.mean(vals)) if vals else None
-                    row[f"{ds}/{m}_std"] = float(np.std(vals, ddof=1)) if len(vals) > 1 else None
+                    row[f"{ds}{sfx}/{m}"] = float(np.mean(vals)) if vals else None
+                    row[f"{ds}{sfx}/{m}_std"] = float(np.std(vals, ddof=1)) if len(vals) > 1 else None
             rows.append(row)
     return pd.DataFrame(rows)
+
+
+def probe_columns(df) -> list:
+    """(dataset, head, metric, dynamics.csv column, label) for every probe metric with values in ``df``."""
+    return [
+        (ds, head, m, f"{ds}{sfx}/{m}", label + lab)
+        for head, (sfx, lab) in HEADS.items()
+        for ds, metrics in PROBE_METRICS.items()
+        for m, label in metrics.items()
+        if f"{ds}{sfx}/{m}" in df and df[f"{ds}{sfx}/{m}"].notna().any()
+    ]
 
 
 def dynamics_correlations(df):
@@ -655,18 +722,14 @@ def dynamics_correlations(df):
 
     df = df.assign(log10_step=np.log10(df["step"].where(df["step"] > 0)))
     rows = []
-    for ds, metrics in PROBE_METRICS.items():
-        for m, label in metrics.items():
-            col = f"{ds}/{m}"
-            if col not in df or df[col].isna().all():
-                continue
-            for x in [*DYNAMICS_PRETRAIN, "log10_step"]:
-                pair = df[[x, col]].apply(pd.to_numeric, errors="coerce").dropna()
-                r = {"dataset": ds, "metric": m, "label": label, "vs": x, "n": len(pair)}
-                if len(pair) >= 3 and pair[x].nunique() > 1 and pair[col].nunique() > 1:
-                    r["pearson_r"], r["pearson_p"] = stats.pearsonr(pair[x], pair[col])
-                    r["spearman_rho"], r["spearman_p"] = stats.spearmanr(pair[x], pair[col])
-                rows.append(r)
+    for ds, head, m, col, label in probe_columns(df):
+        for x in [*DYNAMICS_PRETRAIN, "log10_step"]:
+            pair = df[[x, col]].apply(pd.to_numeric, errors="coerce").dropna()
+            r = {"dataset": ds, "head": head, "metric": m, "label": label, "vs": x, "n": len(pair)}
+            if len(pair) >= 3 and pair[x].nunique() > 1 and pair[col].nunique() > 1:
+                r["pearson_r"], r["pearson_p"] = stats.pearsonr(pair[x], pair[col])
+                r["spearman_rho"], r["spearman_p"] = stats.spearmanr(pair[x], pair[col])
+            rows.append(r)
     return pd.DataFrame(rows)
 
 
@@ -679,12 +742,7 @@ def dynamics_plots(df, out: Path) -> list:
     import numpy as np
     from scipy import stats
 
-    probe_cols = [
-        (f"{ds}/{m}", label)
-        for ds, metrics in PROBE_METRICS.items()
-        for m, label in metrics.items()
-        if f"{ds}/{m}" in df and df[f"{ds}/{m}"].notna().any()
-    ]
+    probe_cols = [(col, label) for *_, col, label in probe_columns(df)]
     pre_cols = [(c, c) for c in ["val/noise_loss", "val/pred_loss", "val/pred_acc"] if df[c].notna().any()]
     paths = []
 
@@ -695,6 +753,7 @@ def dynamics_plots(df, out: Path) -> list:
     for ax, (col, label) in zip(axes.flat, panels, strict=False):
         for seed, g in df.sort_values("step").groupby("seed"):
             std = g.get(f"{col}_std")
+            std = None if std is None else std.astype(float)  # one head seed: no std (None -> NaN, no bar)
             ax.errorbar(g["step"], g[col], yerr=std, marker="o", ms=3, capsize=2, label=f"seed {seed}")
         positive = df["step"][df["step"] > 0]
         if len(positive):
@@ -749,9 +808,8 @@ def dynamics_analyze(args, _passthrough):
     corr.to_csv(out / "dynamics_corr.csv", index=False)
     plots = dynamics_plots(df, out)
 
-    probe_cols = [c for c in df.columns if "/" in c and c.split("/")[0] in PROBE_METRICS and "n_head" not in c]
     show = ["seed", "step", "val/noise_loss", "val/pred_loss", "val/pred_acc"]
-    show += [c for c in probe_cols if not c.endswith("_std") and df[c].notna().any()]
+    show += [col for *_, col, _ in probe_columns(df)]
     md = ["## Kept checkpoints", "", md_table(df[show], 3), ""]
     if not corr.empty and "spearman_rho" in corr:
         wide = corr.pivot_table(index="label", columns="vs", values="spearman_rho", sort=False)
@@ -822,6 +880,13 @@ def main():
     )
     p.add_argument("--datasets", nargs="+", choices=list(PROBE_METRICS), default=list(PROBE_METRICS), help="probe")
     p.add_argument("--head_seeds", type=int, nargs="+", default=[0, 1, 2], help="probe")
+    p.add_argument("--heads", nargs="+", choices=list(HEADS), default=["mlp"], help="finetune.py --head (probe)")
+    p.add_argument(
+        "--per_checkpoint",
+        action="store_true",
+        help="probe --condor: one job per new kept checkpoint, running all its probes then analyze (hpc/watch.sub)",
+    )
+    p.add_argument("--analyze", action="store_true", help="probe: run analyze afterwards")
     p.add_argument("--steps", type=int, nargs="*", default=[], help="Probe only these kept steps (default: all)")
     p.add_argument("--max_epochs", type=int, default=PROBE["max_epochs"], help="probe")
     p.add_argument("--jobs", type=int, default=1, help="Concurrent subprocesses")
