@@ -652,6 +652,7 @@ def per_checkpoint_jobs(args, passthrough):
                 + (["--", *passthrough] if passthrough else [])
             )
             lines.append(("-", cmd))
+            pd.mkdir(parents=True, exist_ok=True)  # the job creates it only once it runs; touch needs it now
             markers.append(pd / QUEUED)
     if not lines:
         print("dynamics probe: no new checkpoints to queue")

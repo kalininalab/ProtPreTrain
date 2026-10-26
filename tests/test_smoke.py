@@ -801,8 +801,7 @@ def test_dynamics_per_checkpoint_and_linear(tmp_path):
     assert markers[0] == str(run / "probes" / "step_0000500" / "queued")
 
     # queued (marker) and fully probed checkpoints are not queued again
-    Path(markers[0]).parent.mkdir(parents=True)
-    Path(markers[0]).touch()
+    Path(markers[0]).touch()  # probe_watch.sh's touch: the marker's directory must already exist
     for i, step in enumerate((500, 1000, 2000)):
         pdir = run / "probes" / f"step_{step:07d}"
         pdir.mkdir(parents=True, exist_ok=True)
