@@ -302,12 +302,12 @@ class DownstreamDataModule(LightningDataModule):
 
         Loaded once and kept: fit and test call ``setup`` separately, and every split must be embedded by the same
         encoder (a random-init control re-drawn per stage would embed train and test with different networks).
+        BatchNorm calibration waits for the first split that is actually embedded, so cached runs skip it.
         """
         if self._transforms is None:
             self.model = self.load_pretrained_model() if self._uses_denoise_model else None
             self._transforms = self._optional_add_transform(dict(self.model.hparams) if self.model else {})
-            if self.model is not None and (self.random_init or self.calibrate_bn):
-                self._calibrate_batchnorm(*self._transforms)
+            self._needs_calibration = self.model is not None and (self.random_init or self.calibrate_bn)
         return self._transforms
 
     def setup(self, stage: str = None):
@@ -421,6 +421,9 @@ class DownstreamDataModule(LightningDataModule):
         setattr(self, split, data_list)
 
     def _embed_with_denoise_model(self, splits: List[str]) -> List[Data]:
+        if self._needs_calibration:
+            self._calibrate_batchnorm(*self._transforms)
+            self._needs_calibration = False
         trainer = Trainer(
             callbacks=[],
             logger=False,

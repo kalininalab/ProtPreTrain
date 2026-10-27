@@ -551,6 +551,12 @@ def test_calibrate_bn_pretrained(tmp_path):
     assert any(not torch.equal(state[k], pretrained[k]) for k in state if k.endswith("running_var"))
     assert dm._cache_key()["calibrate_bn"] is True
     assert toy_datamodule(ckpt)._cache_key() == {}
+    # embeddings already cached: no calibration pass (concurrent probes of one checkpoint share a GPU)
+    cached = toy_datamodule(ckpt, calibrate_bn=True, bn_calib_batches=2, embed_cache=str(tmp_path / "cache"))
+    cached.setup("fit")
+    assert all(
+        torch.equal(v, pretrained[k]) for k, v in cached.model.state_dict().items() if k.endswith("running_var")
+    )
 
 
 def test_embedding_standardization(tmp_path):
