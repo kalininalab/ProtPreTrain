@@ -366,13 +366,20 @@ def _probe_targets(out: Path, configs: list) -> list:
     return targets
 
 
-def probe_stem(dataset: str, head_seed, head: str = "mlp") -> str:
+def probe_stem(dataset: str, head_seed, head: str = "mlp", layer=None) -> str:
     """File stem of one probe's json/log/mlflow store; homology keeps the original ``probe_h<seed>`` names.
 
     Linear-probe runs (``--head linear``) add ``lin``: ``probe_lin_h<seed>`` / ``probe_<dataset>_lin_h<seed>``.
+    Probes of one GPS layer (``--layer``) add ``L<layer>`` before the head seed, so last-layer globs don't match them.
     """
     parts = ["probe"] + ([] if dataset == "homology" else [dataset]) + (["lin"] if head == "linear" else [])
+    parts += [] if layer is None else [f"L{layer}"]
     return "_".join(parts + [f"h{head_seed}"])
+
+
+def layer_args(args) -> list:
+    """Layers to probe: ``--layers``, or ``[None]`` (the last layer, no ``--layer`` flag) when not given."""
+    return args.layers or [None]
 
 
 def embed_cache(d: Path, dataset: str) -> Path:
@@ -595,8 +602,8 @@ def dynamics_probe(args, passthrough):
             if args.steps and step not in args.steps:
                 continue
             pd = d / "probes" / ckpt.stem
-            for ds, head, hs in itertools.product(args.datasets, args.heads, args.head_seeds):
-                stem = probe_stem(ds, hs, head)
+            for ds, head, hs, layer in itertools.product(args.datasets, args.heads, args.head_seeds, layer_args(args)):
+                stem = probe_stem(ds, hs, head, layer)
                 summary = pd / f"{stem}.json"
                 if summary.exists():
                     continue
@@ -608,6 +615,7 @@ def dynamics_probe(args, passthrough):
                     + ["--embed_cache", str(embed_cache(pd, ds))]
                     # untrained weights carry fresh BatchNorm stats (0/1): set them as for the random-init control
                     + (["--calibrate_bn"] if step == 0 else [])
+                    + ([] if layer is None else ["--layer", str(layer)])
                     + passthrough
                 )
                 if not args.dry_run:
@@ -645,20 +653,23 @@ def per_checkpoint_jobs(args, passthrough):
             if args.steps and step not in args.steps:
                 continue
             pd = d / "probes" / ckpt.stem
-            stems = [
-                probe_stem(ds, hs, h) for ds, h, hs in itertools.product(args.datasets, args.heads, args.head_seeds)
-            ]
-            if (pd / QUEUED).exists() or all((pd / f"{s}.json").exists() for s in stems):
+            combos = itertools.product(args.datasets, args.heads, args.head_seeds, layer_args(args))
+            stems = [probe_stem(ds, hs, h, layer) for ds, h, hs, layer in combos]
+            marker = pd / (f"{QUEUED}_layers" if args.layers else QUEUED)
+            if marker.exists() or all((pd / f"{s}.json").exists() for s in stems):
                 continue
             cmd = (
                 ["python", "scripts/benchmark.py", "--out", str(out), "dynamics", "probe", "--config", args.config]
                 + ["--steps", str(step), "--datasets", *args.datasets, "--heads", *args.heads]
-                + ["--head_seeds", *map(str, args.head_seeds), "--max_epochs", str(args.max_epochs), "--analyze"]
+                + ["--head_seeds", *map(str, args.head_seeds), "--max_epochs", str(args.max_epochs)]
+                + ["--jobs", str(args.jobs)]
+                + (["--layers", *map(str, args.layers)] if args.layers else [])
+                + ["--analyze"]
                 + (["--", *passthrough] if passthrough else [])
             )
             lines.append(("-", cmd))
             pd.mkdir(parents=True, exist_ok=True)  # the job creates it only once it runs; touch needs it now
-            markers.append(pd / QUEUED)
+            markers.append(marker)
     if not lines:
         print("dynamics probe: no new checkpoints to queue")
         Path(args.condor).unlink(missing_ok=True)
@@ -802,6 +813,67 @@ def dynamics_plots(df, out: Path) -> list:
     return paths
 
 
+def dynamics_layers(args, out: Path) -> list:
+    """Per-layer probes (``dynamics probe --layers``): dynamics_layers.{csv,md} and a layer x step heatmap per metric.
+
+    Values are means over the head seeds found. Returns the written paths; none when no run has per-layer probes.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+
+    rows = []
+    for d in dynamics_runs(args):
+        seed = int(d.name.rsplit("_s", 1)[1])
+        for step, ckpt, _ in _kept(d):
+            pdir = d / "probes" / ckpt.stem
+            for (ds, metrics), (head, (_, lab)) in itertools.product(PROBE_METRICS.items(), HEADS.items()):
+                by_layer = {}
+                for f in pdir.glob(f"{probe_stem(ds, '*', head, '*')}.json"):
+                    layer = int(f.stem.rsplit("_L", 1)[1].split("_h")[0])
+                    by_layer.setdefault(layer, []).append(json.loads(f.read_text()))
+                for (layer, probes), (m, label) in itertools.product(by_layer.items(), metrics.items()):
+                    vals = [p[m] for p in probes if p.get(m) is not None]
+                    if vals:
+                        rows.append(
+                            {"seed": seed, "step": step, "layer": layer, "metric": label + lab, "value": np.mean(vals)}
+                        )
+    if not rows:
+        return []
+    df = pd.DataFrame(rows).sort_values(["metric", "seed", "step", "layer"])
+    df.to_csv(out / "dynamics_layers.csv", index=False)
+    labels = list(dict.fromkeys(df["metric"]))
+    md = [
+        "# Probes per GPS layer",
+        "",
+        "Rows: kept step; columns: layer (0 = input embedding, before any GPS layer).",
+        "",
+    ]
+    ncol = min(3, len(labels))
+    nrow = -(-len(labels) // ncol)
+    fig, axes = plt.subplots(nrow, ncol, figsize=(4.6 * ncol, 3.6 * nrow), squeeze=False)
+    for ax, label in zip(axes.flat, labels, strict=False):
+        wide = df[df["metric"] == label].pivot_table(index="step", columns="layer", values="value")  # mean over seeds
+        md += [f"## {label}", "", md_table(wide.reset_index(), 3), ""]
+        im = ax.imshow(wide.to_numpy(), aspect="auto", origin="lower", cmap="viridis")
+        ax.set_xticks(range(len(wide.columns)), wide.columns)
+        ax.set_yticks(range(len(wide.index)), [f"{s:,}" for s in wide.index], fontsize=7)
+        ax.set_xlabel("layer")
+        ax.set_ylabel("pretraining step")
+        ax.set_title(label, fontsize=10)
+        fig.colorbar(im, ax=ax, shrink=0.8)
+    for ax in axes.flat[len(labels) :]:
+        ax.set_visible(False)
+    fig.tight_layout()
+    fig.savefig(out / "dynamics_layers.png", dpi=150)
+    plt.close(fig)
+    (out / "dynamics_layers.md").write_text("\n".join(md))
+    return [out / "dynamics_layers.csv", out / "dynamics_layers.md", out / "dynamics_layers.png"]
+
+
 def dynamics_analyze(args, _passthrough):
     """Write dynamics.csv, dynamics_corr.csv, dynamics.md and the plots for ``--config``'s runs."""
     import pandas as pd
@@ -814,7 +886,7 @@ def dynamics_analyze(args, _passthrough):
     df.to_csv(out / "dynamics.csv", index=False)
     corr = dynamics_correlations(df)
     corr.to_csv(out / "dynamics_corr.csv", index=False)
-    plots = dynamics_plots(df, out)
+    plots = dynamics_plots(df, out) + dynamics_layers(args, out)
 
     show = ["seed", "step", "val/noise_loss", "val/pred_loss", "val/pred_acc"]
     show += [col for *_, col, _ in probe_columns(df)]
@@ -896,6 +968,13 @@ def main():
     )
     p.add_argument("--analyze", action="store_true", help="probe: run analyze afterwards")
     p.add_argument("--steps", type=int, nargs="*", default=[], help="Probe only these kept steps (default: all)")
+    p.add_argument(
+        "--layers",
+        type=int,
+        nargs="*",
+        default=[],
+        help="probe: finetune.py --layer for each of these GPS layers (0 = input embedding) instead of the last only",
+    )
     p.add_argument("--max_epochs", type=int, default=PROBE["max_epochs"], help="probe")
     p.add_argument("--jobs", type=int, default=1, help="Concurrent subprocesses")
     p.add_argument("--dry_run", action="store_true", help="Print commands without running them")

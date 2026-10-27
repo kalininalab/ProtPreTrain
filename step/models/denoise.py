@@ -151,6 +151,8 @@ class DenoiseModel(LightningModule):
             self.noise_pred = SimpleMLP(hidden_dim, hidden_dim, 3, dropout)
         self.type_pred = SimpleMLP(hidden_dim, hidden_dim, 20, dropout)
         self.aggr = pyg.nn.aggr.MeanAggregation()
+        # predict_step also returns every layer's pooled embedding as ``layer_x`` (finetune.py --layer)
+        self.layer_embeddings = False
         self.redraw_projection = RedrawProjection(
             self.convs, redraw_interval=1000 if attn_type == "performer" else None
         )
@@ -162,8 +164,11 @@ class DenoiseModel(LightningModule):
         src, dst = batch.edge_index
         return self.rbf((batch.pos[dst] - batch.pos[src]).norm(dim=-1))
 
-    def encode(self, batch: Data, edge_attr: torch.Tensor | None) -> torch.Tensor:
-        """Per-node embeddings from residue types, positional encoding, and (unless invariant) raw coordinates."""
+    def encode(self, batch: Data, edge_attr: torch.Tensor | None, layers: list | None = None) -> torch.Tensor:
+        """Per-node embeddings from residue types, positional encoding, and (unless invariant) raw coordinates.
+
+        ``layers``, if given, collects the input embedding and the output of every GPS layer (``num_layers + 1``).
+        """
         feats = [self.feat_encode(batch.x)]
         if not self.invariant:
             feats.append(self.pos_encode(batch.pos))
@@ -172,11 +177,15 @@ class DenoiseModel(LightningModule):
         elif self.pe == "seq":
             feats.append(sequence_pe(batch, self.pe_dim))
         x = torch.cat(feats, dim=1)
+        if layers is not None:
+            layers.append(x)
         for conv in self.convs:
             if edge_attr is None:
                 x = conv(x, batch.edge_index, batch.batch)
             else:
                 x = conv(x, batch.edge_index, batch.batch, edge_attr=edge_attr)
+            if layers is not None:
+                layers.append(x)
         return x
 
     def forward(self, batch: Data) -> Data:
@@ -229,8 +238,12 @@ class DenoiseModel(LightningModule):
 
     def predict_step(self, batch: Any, batch_idx: int) -> Data:
         """Return updated batch with all the information."""
-        x = self.encode(batch, self.edge_features(batch))
+        layers = [] if self.layer_embeddings else None
+        x = self.encode(batch, self.edge_features(batch), layers)
         batch.aggr_x = self.aggr(x, batch.batch)
+        if layers is not None:
+            # (graphs, num_layers + 1, hidden_dim); fp16 halves what the embedding cache stores
+            batch.layer_x = torch.stack([self.aggr(h, batch.batch) for h in layers], dim=1).half()
         return batch
 
     def configure_optimizers(self) -> Any:

@@ -62,8 +62,16 @@ parser.add_argument(
     default=None,
     help="Directory for per-split embeddings; reused if present, so head seeds embed only once per encoder",
 )
+parser.add_argument(
+    "--layer",
+    type=int,
+    default=None,
+    help="checkpoint: probe the pooled output of this GPS layer (0 = input embedding) instead of the last layer",
+)
 parser.add_argument("--summary_json", type=str, default=None, help="Write the test metrics here as JSON")
 config = parser.parse_args()
+if config.layer is not None and config.model_source != "checkpoint":
+    parser.error("--layer needs --model_source checkpoint")
 pl.seed_everything(config.seed)
 
 logger = mlflow_logger(config.experiment or config.dataset)
@@ -99,6 +107,7 @@ data = {
     calibrate_bn=config.calibrate_bn,
     standardize=config.standardize,
     embed_cache=config.embed_cache,
+    layer=config.layer,
 )
 trainer = pl.Trainer(
     accelerator="auto",

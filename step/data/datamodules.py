@@ -120,6 +120,9 @@ class DownstreamDataModule(LightningDataModule):
 
     ``setup`` embeds every split with the frozen feature extractor, then (``standardize``) z-scores the embeddings
     per feature with the train split's mean and std. Embeddings are cached raw, so the cache does not depend on it.
+
+    ``layer`` (our checkpoint only) probes the mean-pooled output of that GPS layer instead of the last one (0 = the
+    input embedding). The cache then stores every layer per protein (``layers``) for the other layers' probes.
     """
 
     dataset_class = None
@@ -143,6 +146,7 @@ class DownstreamDataModule(LightningDataModule):
         calibrate_bn: bool = False,
         standardize: bool = True,
         embed_cache: str = None,
+        layer: int = None,
         radius: int = 10,
         walk_length: int = 20,
         **kwargs,
@@ -161,6 +165,7 @@ class DownstreamDataModule(LightningDataModule):
         self.calibrate_bn = calibrate_bn
         self.standardize = standardize
         self.embed_cache = embed_cache
+        self.layer = layer
         self.radius = radius
         self.walk_length = walk_length
         self.kwargs = kwargs
@@ -321,6 +326,11 @@ class DownstreamDataModule(LightningDataModule):
                 self, split, self.dataset_class(split, transform=transform, pre_transform=pre_transform, **self.kwargs)
             )
         self.embed_splits(splits)
+        if self.layer is not None:
+            for split in splits:
+                for d in getattr(self, split):
+                    d.x = d.layers[self.layer].float()
+                    del d.layers
         if self.standardize:
             self._standardize(splits)
 
@@ -376,7 +386,10 @@ class DownstreamDataModule(LightningDataModule):
             for split in splits:
                 path = os.path.join(self.embed_cache, f"{split}.pt")
                 if os.path.exists(path):
-                    cached[split] = torch.load(path, weights_only=False)
+                    data_list = torch.load(path, weights_only=False)
+                    # A cache written without --layer has no per-layer embeddings: embed this split again
+                    if self.layer is None or "layers" in data_list[0]:
+                        cached[split] = data_list
             todo = [split for split in splits if split not in cached]
             if todo:
                 self._embed(todo)
@@ -415,6 +428,7 @@ class DownstreamDataModule(LightningDataModule):
             # CPUs without native bf16 run bf16 autocast several times slower than fp32
             precision="bf16-mixed" if torch.cuda.is_available() else "32-true",
         )
+        self.model.layer_embeddings = self.layer is not None
         for split in splits:
             dl = self._get_dataloader(getattr(self, split))
             result = trainer.predict(self.model, dataloaders=dl)
@@ -423,6 +437,8 @@ class DownstreamDataModule(LightningDataModule):
                 for i in range(len(batch)):
                     k = batch[i]
                     k.x = batch.aggr_x[i]
+                    if self.layer is not None:
+                        k.layers = batch.layer_x[i]
                     data_list.append(k)
             self._assign_data(split, data_list)
 

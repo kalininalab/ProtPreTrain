@@ -822,3 +822,63 @@ def test_dynamics_per_checkpoint_and_linear(tmp_path):
     assert df["stability_lin/test/spearman"].tolist()[:2] == pytest.approx([0.0, 0.2])
     corr = pd.read_csv(tmp_path / "dynamics" / "dynamics_corr.csv")
     assert set(corr["head"]) == {"mlp", "linear"}
+
+
+def test_layer_embeddings(tmp_path):
+    """--layer probes one GPS layer's pooled output; the cache keeps every layer and replaces a last-layer-only cache."""
+    ckpt = save_toy_checkpoint(tmp_path / "toy.ckpt")
+    cache = tmp_path / "cache"
+    last = toy_datamodule(ckpt, embed_cache=str(cache), standardize=False)
+    last.setup("fit")
+    num_layers = last.model.hparams.num_layers
+    dm = toy_datamodule(ckpt, embed_cache=str(cache), standardize=False, layer=num_layers)
+    dm.setup("fit")
+    assert torch.allclose(dm.train[0].x, last.train[0].x, atol=1e-2, rtol=1e-2)  # last layer, stored in fp16
+    assert "layers" not in dm.train[0]
+    cached = torch.load(cache / "train.pt", weights_only=False)
+    assert cached[0].layers.shape == (num_layers + 1, last.train[0].x.shape[0])
+    first = toy_datamodule(ckpt, embed_cache=str(cache), standardize=False, layer=0)
+    first.setup("fit")
+    assert not torch.allclose(first.train[0].x, dm.train[0].x)
+
+
+def test_dynamics_layer_probes(tmp_path):
+    """dynamics probe --layers queues one probe per layer; analyze tabulates them apart from the last-layer probes."""
+    import json
+    import subprocess
+    import sys
+
+    import pandas as pd
+
+    script = Path(__file__).parents[1] / "scripts" / "benchmark.py"
+    run = tmp_path / "dynamics" / "+invariant_s0"
+    (run / "checkpoints").mkdir(parents=True)
+    for step in (500, 1000):
+        stem = run / "checkpoints" / f"step_{step:07d}"
+        stem.with_suffix(".ckpt").write_bytes(b"")
+        record = {"step": step, "epoch": 0, "planned_steps": 1000, "val/loss": 1.0, "val/noise_loss": 1.0}
+        stem.with_suffix(".json").write_text(json.dumps(record | {"val/pred_loss": 2.0, "val/pred_acc": 0.1}))
+
+    def bench(*argv):
+        cmd = [sys.executable, str(script), "--out", str(tmp_path), "dynamics", *argv]
+        return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+
+    queue = tmp_path / "q.txt"
+    bench("probe", "--datasets", "homology", "--head_seeds", "0", "--layers", "0", "2", "--condor", str(queue))
+    lines = queue.read_text().splitlines()
+    assert len(lines) == 2 * 2 and sum("--layer 2" in line for line in lines) == 2
+    assert any("probes/step_0000500/probe_L0_h0.json" in line for line in lines)
+
+    for step in (500, 1000):
+        pdir = run / "probes" / f"step_{step:07d}"
+        pdir.mkdir(parents=True, exist_ok=True)
+        (pdir / "probe_h0.json").write_text(json.dumps({"test_fold/acc": 0.5}))
+        for layer in (0, 2):
+            (pdir / f"probe_L{layer}_h0.json").write_text(json.dumps({"test_fold/acc": layer / 10 + step / 1e4}))
+    bench("analyze")
+    out = tmp_path / "dynamics"
+    assert pd.read_csv(out / "dynamics.csv")["homology/test_fold/acc"].tolist() == [0.5, 0.5]
+    layers = pd.read_csv(out / "dynamics_layers.csv")
+    fold = layers[layers["metric"] == "fold acc"].set_index(["step", "layer"])["value"]
+    assert fold[(1000, 2)] == pytest.approx(0.3) and fold[(500, 0)] == pytest.approx(0.05)
+    assert (out / "dynamics_layers.png").exists() and (out / "dynamics_layers.md").exists()
