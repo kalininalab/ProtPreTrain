@@ -115,6 +115,11 @@ CONFIGS += [
 ]
 # The final model: +invariant (best homology/fluorescence) with drop0's dropout (best DeepLoc)
 CONFIGS.append({**next(c for c in CONFIGS if c["name"] == "+invariant"), "name": "inv_drop0", "dropout": 0.0})
+# inv_drop0 widened to 155M params (1280 x 12) for ~1M steps at --preset full: 29 epochs; batch 16 x 4 GPUs keeps
+# inv_drop0's global batch of 64 (32 x 2 GPUs)
+CONFIGS.append(
+    {**CONFIGS[-1], "name": "inv_drop0_150m", "hidden_dim": 1280, "num_layers": 12, "batch_size": 16, "max_epochs": 29}
+)
 # The random-init probe control reuses this config's checkpoints (architecture + hparams, fresh weights)
 RANDOM_INIT_OF = "+invariant"  # the final cumulative config
 
