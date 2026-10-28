@@ -452,7 +452,8 @@ class DownstreamDataModule(LightningDataModule):
             ds = getattr(self, split)
             data_list = []
             for i in tqdm(ds):
-                i.x = torch.tensor(pipe(i.seq)).squeeze(0).mean(dim=0)
+                # truncation: ESM-2 has 1026 positions; longer chains would crash the pipeline
+                i.x = torch.tensor(pipe(i.seq, tokenize_kwargs={"truncation": True})).squeeze(0).mean(dim=0)
                 data_list.append(i)
             self._assign_data(split, data_list)
 
